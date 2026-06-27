@@ -44,12 +44,22 @@ struct AhbImage {
 // Format must be one of the standard AHB formats: AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM
 // is the safe default for capture; other formats may need a YCbCr conversion.
 //
-// usage flags: GPU_SAMPLED_IMAGE | GPU_FRAMEBUFFER are set by default.
+// usage flags: GPU_SAMPLED_IMAGE | GPU_COLOR_OUTPUT are always set.
+//
+// gpuPreferredLayout: when true the buffer is allocated CPU_READ_RARELY instead
+// of CPU_READ_OFTEN, hinting gralloc to keep a GPU-optimal (tiled/compressed)
+// layout instead of a CPU-cached linear one. Use for images the GPU touches
+// every frame but the CPU only locks rarely — i.e. the framegen INPUT slots
+// (GPU-sampled each present; CPU-locked only by the optional anti-artifacts
+// delta check and the first-frames diagnostics). Leave false (CPU_READ_OFTEN)
+// for buffers the CPU-blit fallback locks every frame (the outputs). Allocation
+// transparently retries with CPU_READ_OFTEN if the RARELY combo is rejected, so
+// this never regresses a device that worked before.
 //
 // Returns kOk on success; on failure returns kErrAhb* and `out` is left in
 // a destroy()-safe state.
 int createAhbImage(VulkanSession &vk, uint32_t w, uint32_t h,
-                   VkFormat fmt, AhbImage &out);
+                   VkFormat fmt, AhbImage &out, bool gpuPreferredLayout = false);
 
 // Imports an EXTERNAL AHardwareBuffer (e.g. one acquired from ImageReader).
 // Does NOT take ownership of the AHB. The caller must keep it alive (via

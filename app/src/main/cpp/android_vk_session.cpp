@@ -251,6 +251,41 @@ int create_session(VulkanSession &out) {
         }
     }
 
+    // Probe cross-device external binary-semaphore support. We do NOT use
+    // external semaphores yet — the cross-device inSem/outSem handoff that would
+    // replace the per-context waitContextIdle wait with a producer/consumer
+    // overlap is a documented follow-up. This probe only records, per GPU,
+    // whether that follow-up is even viable: it needs a binary-semaphore handle
+    // type that is BOTH exportable and importable. On Android the portable type
+    // is SYNC_FD; OPAQUE_FD is commonly unsupported across two separate
+    // VkDevices. Instance-level query, no effect on device creation.
+    {
+        auto probeSem = [&](VkExternalSemaphoreHandleTypeFlagBits ht, const char* name) {
+            if (vkGetPhysicalDeviceExternalSemaphoreProperties == nullptr) {
+                LOGI("  [%s] external-semaphore probe unavailable (fn ptr null)", name);
+                return;
+            }
+            const VkPhysicalDeviceExternalSemaphoreInfo info{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO,
+                .handleType = ht,
+            };
+            VkExternalSemaphoreProperties props{
+                .sType = VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES,
+            };
+            vkGetPhysicalDeviceExternalSemaphoreProperties(out.physicalDevice, &info, &props);
+            const bool exportable = (props.externalSemaphoreFeatures &
+                VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT) != 0;
+            const bool importable = (props.externalSemaphoreFeatures &
+                VK_EXTERNAL_SEMAPHORE_FEATURE_IMPORTABLE_BIT) != 0;
+            LOGI("  [%s] exportable=%d importable=%d -> cross-device handoff %s",
+                 name, (int)exportable, (int)importable,
+                 (exportable && importable) ? "VIABLE" : "not viable");
+        };
+        LOGI("External binary-semaphore capability (for the cross-device sync follow-up):");
+        probeSem(VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT, "SYNC_FD");
+        probeSem(VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT, "OPAQUE_FD");
+    }
+
     std::vector<const char *> enabledExts;
     for (const char *req : kRequiredDeviceExt) enabledExts.push_back(req);
     bool hasSwapchainDevExt = false;
@@ -418,6 +453,15 @@ int create_session(VulkanSession &out) {
     }
     out.ringNext = 0;
 
+    // Reusable fence for synchronous input-copy submits (see VulkanSession::copyFence).
+    {
+        const VkFenceCreateInfo fi{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        if (out.fn.vkCreateFence(out.device, &fi, nullptr, &out.copyFence) != VK_SUCCESS) {
+            LOGE("vkCreateFence(copyFence) failed");
+            return kSessionDeviceCreateFailed;
+        }
+    }
+
     LOGI("Vulkan session ready (compute family=%u, %zu extensions, robustness2=%s, swapchain=%s)",
          out.computeFamilyIdx, enabledExts.size(),
          out.hasRobustness2 ? "yes" : "no",
@@ -535,6 +579,10 @@ void destroy_session(VulkanSession &s) {
                 }
                 s.ringCommandBuffers[i] = VK_NULL_HANDLE; // owned by the pool
             }
+            if (s.copyFence != VK_NULL_HANDLE) {
+                s.fn.vkDestroyFence(s.device, s.copyFence, nullptr);
+                s.copyFence = VK_NULL_HANDLE;
+            }
         }
         if (s.commandPool != VK_NULL_HANDLE && s.fn.vkDestroyCommandPool != nullptr) {
             s.fn.vkDestroyCommandPool(s.device, s.commandPool, nullptr);
@@ -564,6 +612,7 @@ void destroy_session(VulkanSession &s) {
     s.ringCommandBuffers.fill(VK_NULL_HANDLE);
     s.ringFences.fill(VK_NULL_HANDLE);
     s.ringFenceArmed.fill(false);
+    s.copyFence = VK_NULL_HANDLE;
     s.fn = {};
 }
 

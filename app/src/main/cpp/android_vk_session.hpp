@@ -50,6 +50,14 @@ struct VulkanSession {
     std::array<bool, kCommandRingSize> ringFenceArmed{};
     uint32_t ringNext = 0;
 
+    // Reusable fence for the synchronous input-copy submits (copyAhbImage /
+    // blitAhbImageGpu). Those are serialized on the worker thread, so a single
+    // shared fence is enough: submit -> vkWaitForFences -> vkResetFences. This
+    // replaces a per-frame vkQueueWaitIdle, which drains the WHOLE compute queue
+    // (a device-wide barrier) where waiting on just this submit's fence is
+    // sufficient. Created unsignaled in create_session.
+    VkFence copyFence = VK_NULL_HANDLE;
+
     // Per-device function table. Required because framegen creates its own
     // VkDevice with a different extension set and calls volkLoadDevice() on it,
     // which clobbers volk's global function pointers. Anything in this session

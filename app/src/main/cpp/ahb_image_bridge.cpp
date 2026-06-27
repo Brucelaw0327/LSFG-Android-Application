@@ -166,7 +166,7 @@ int try_export_opaque_fd(VulkanSession &vk, VkDeviceMemory mem) {
 } // namespace
 
 int createAhbImage(VulkanSession &vk, uint32_t w, uint32_t h,
-                   VkFormat fmt, AhbImage &out) {
+                   VkFormat fmt, AhbImage &out, bool gpuPreferredLayout) {
     out = {};
     out.format = fmt;
 
@@ -176,38 +176,61 @@ int createAhbImage(VulkanSession &vk, uint32_t w, uint32_t h,
         return kErrAhbAllocate;
     }
 
-    // CPU_READ_OFTEN (instead of RARELY) tells the driver we will lock these
-    // AHBs frequently for CPU read — true on Adreno because blitOutputToWindow
-    // locks every output AHB ~30-90 times/sec to memcpy into the overlay
-    // ANativeWindow. With RARELY, each AHardwareBuffer_lock incurs a heavy
-    // GPU→CPU cache flush; with OFTEN the driver picks a CPU-cached layout
-    // and the lock cost drops by an order of magnitude. Tradeoff: GPU writes
-    // through this memory may use a less optimal cache hierarchy, but for
-    // our access pattern (one vkCmdCopyImage / vkCmdBlitImage per frame
-    // followed by a CPU read) the savings outweigh the GPU-side cost.
-    AHardwareBuffer_Desc desc{
-        .width = w,
-        .height = h,
-        .layers = 1,
-        .format = ahbFormat,
-        .usage = AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE
-               | AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT
-               | AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN,
-        .stride = 0,
-        .rfu0 = 0,
-        .rfu1 = 0,
+    // CPU read flag = layout hint to gralloc:
+    //   - CPU_READ_OFTEN  → CPU-cached (often linear) layout: cheap
+    //     AHardwareBuffer_lock, but the GPU pays for the less-optimal layout on
+    //     every vkCmdCopyImage / sample / blit. Right for OUTPUTS, which the
+    //     CPU-blit fallback locks every frame.
+    //   - CPU_READ_RARELY → GPU-optimal (tiled/compressed) layout: fast GPU
+    //     access, lock pays a one-off detile. Right for INPUTS, which framegen
+    //     samples on the GPU every present and the CPU locks only for the
+    //     optional anti-artifacts check / first-frames diagnostics.
+    // The buffer stays CPU-mappable either way, so anti-artifacts and the
+    // CPU-blit fallback keep working regardless. We retry once with OFTEN if the
+    // RARELY combo is rejected by a picky gralloc, so this never regresses a
+    // device that previously worked.
+    const uint64_t gpuUsage = AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE
+                            | AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT;
+    const uint64_t cpuFlagAttempts[2] = {
+        gpuPreferredLayout ? AHARDWAREBUFFER_USAGE_CPU_READ_RARELY
+                           : AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN,
+        AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN,  // fallback
     };
-    if (AHardwareBuffer_allocate(&desc, &out.ahb) != 0 || out.ahb == nullptr) {
-        LOGE("AHardwareBuffer_allocate(%ux%u, fmt=%u) failed", w, h, ahbFormat);
-        return kErrAhbAllocate;
-    }
-    out.ownsAhb = true;
+    // Only attempt the fallback when it actually differs from the first choice.
+    const int attempts = gpuPreferredLayout ? 2 : 1;
 
-    const int rc = wrap_ahb_in_vkimage(vk, out);
-    if (rc != kOk) {
-        destroyAhbImage(vk, out);
-        return rc;
+    int rc = kErrAhbAllocate;
+    for (int attempt = 0; attempt < attempts; ++attempt) {
+        out = {};
+        out.format = fmt;
+        AHardwareBuffer_Desc desc{
+            .width = w,
+            .height = h,
+            .layers = 1,
+            .format = ahbFormat,
+            .usage = gpuUsage | cpuFlagAttempts[attempt],
+            .stride = 0,
+            .rfu0 = 0,
+            .rfu1 = 0,
+        };
+        if (AHardwareBuffer_allocate(&desc, &out.ahb) != 0 || out.ahb == nullptr) {
+            LOGW("AHardwareBuffer_allocate(%ux%u, fmt=%u, cpu=%s) failed",
+                 w, h, ahbFormat, attempt == 0 && gpuPreferredLayout ? "RARELY" : "OFTEN");
+            rc = kErrAhbAllocate;
+            continue;
+        }
+        out.ownsAhb = true;
+
+        rc = wrap_ahb_in_vkimage(vk, out);
+        if (rc == kOk) {
+            if (attempt == 1) {
+                LOGW("createAhbImage: RARELY layout rejected for %ux%u — fell back to CPU_READ_OFTEN", w, h);
+            }
+            break;
+        }
+        destroyAhbImage(vk, out);  // releases the AHB before the next attempt
     }
+    if (rc != kOk) return rc;
 
     // FD export is best-effort; on Adreno/Mali it always fails. The framegen
     // AHB path doesn't need it, so we don't warn anymore.

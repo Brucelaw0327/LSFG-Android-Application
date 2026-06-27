@@ -96,9 +96,19 @@ android {
             // ThinLTO: cross-TU inlining between lsfg_render_loop.cpp, framegen,
             // dxbc and volk. NDK r27 supports it stably. Release-only because
             // LTO link times are noticeably slower.
+            //
+            // -O3 (above the NDK release default of -O2): targets the CPU-side
+            // per-frame loops (CPU-blit fill, luma/EMA pacing math) for
+            // auto-vectorization. Kept ARCH-NEUTRAL on purpose — cppFlags here
+            // apply to BOTH arm64-v8a and x86_64, so NO -march/-mtune (those
+            // would break the x86_64 build and could SIGILL on un-guaranteed
+            // AArch64 ISA extensions). A/B CANDIDATE: -O3 + ThinLTO can expose
+            // latent UB in the DXVK-derived dxbc translator (cold session-start
+            // path); if a device regresses specifically at session start, drop
+            // -O3 first before suspecting the runtime changes.
             externalNativeBuild {
                 cmake {
-                    cppFlags += "-flto=thin"
+                    cppFlags += listOf("-O3", "-flto=thin")
                     arguments += "-DCMAKE_SHARED_LINKER_FLAGS=-flto=thin -Wl,--gc-sections,--icf=safe"
                 }
             }

@@ -30,6 +30,9 @@
 #include <vector>
 #include <unordered_map>
 #include <dlfcn.h>
+#include <unistd.h>
+#include <sys/resource.h>
+#include <cerrno>
 
 #include "crash_reporter.hpp"
 
@@ -1159,16 +1162,29 @@ bool copyAhbImage(const AhbImage &src, const AhbImage &dst) {
         .commandBufferCount = 1,
         .pCommandBuffers = &cb,
     };
-    const VkResult qsr = g.vk.fn.vkQueueSubmit(g.vk.computeQueue, 1, &si, VK_NULL_HANDLE);
+    const VkResult qsr = g.vk.fn.vkQueueSubmit(g.vk.computeQueue, 1, &si, g.vk.copyFence);
     if (qsr != VK_SUCCESS) {
         LOGE("copyAhbImage vkQueueSubmit failed: %d dst=%ux%u", (int)qsr,
              dst.extent.width, dst.extent.height);
         g.vk.fn.vkFreeCommandBuffers(g.vk.device, g.vk.commandPool, 1, &cb);
         return false;
     }
-    g.vk.fn.vkQueueWaitIdle(g.vk.computeQueue);
+    // Wait on THIS submit's fence rather than vkQueueWaitIdle (which drains the
+    // entire compute queue — a device-wide barrier). framegen reads the dst slot
+    // inside presentContext with no shared semaphore, so the copy must complete
+    // before we return; this is a targeted wait, not a deferral.
+    const VkResult wr = g.vk.fn.vkWaitForFences(g.vk.device, 1, &g.vk.copyFence,
+                                                VK_TRUE, 500ULL * 1'000'000ULL);
+    if (wr == VK_SUCCESS) {
+        g.vk.fn.vkResetFences(g.vk.device, 1, &g.vk.copyFence);
+    } else {
+        // 500 ms+ on a copy is a catastrophic GPU hang; the fence stays pending
+        // so we can't reset it. Surface it — a DEVICE_LOST teardown usually
+        // follows. (vkQueueWaitIdle would have blocked here equivalently.)
+        LOGE("copyAhbImage: vkWaitForFences returned %d (GPU hang?)", (int)wr);
+    }
     g.vk.fn.vkFreeCommandBuffers(g.vk.device, g.vk.commandPool, 1, &cb);
-    return true;
+    return wr == VK_SUCCESS;
 }
 
 bool blitAhbImageGpu(const AhbImage &src, const AhbImage &dst) {
@@ -1269,8 +1285,14 @@ bool blitAhbImageGpu(const AhbImage &src, const AhbImage &dst) {
         .commandBufferCount = 1,
         .pCommandBuffers = &cb,
     };
-    const bool ok = g.vk.fn.vkQueueSubmit(g.vk.computeQueue, 1, &si, VK_NULL_HANDLE) == VK_SUCCESS;
-    if (ok) g.vk.fn.vkQueueWaitIdle(g.vk.computeQueue);
+    const bool ok = g.vk.fn.vkQueueSubmit(g.vk.computeQueue, 1, &si, g.vk.copyFence) == VK_SUCCESS;
+    if (ok) {
+        // Targeted fence wait instead of vkQueueWaitIdle (see copyAhbImage).
+        const VkResult wr = g.vk.fn.vkWaitForFences(g.vk.device, 1, &g.vk.copyFence,
+                                                    VK_TRUE, 500ULL * 1'000'000ULL);
+        if (wr == VK_SUCCESS) g.vk.fn.vkResetFences(g.vk.device, 1, &g.vk.copyFence);
+        else LOGW("blitAhbImageGpu: vkWaitForFences returned %d", (int)wr);
+    }
     g.vk.fn.vkFreeCommandBuffers(g.vk.device, g.vk.commandPool, 1, &cb);
     return ok;
 }
@@ -1570,7 +1592,7 @@ void blitOutputToWindow(const AhbImage &out, bool allowGpuPost = true) {
 
     // Synchronization is handled by the producer side before calling into this
     // blit path:
-    // - generated outputs: LSFG_3_1::waitIdle() / LSFG_3_1P::waitIdle()
+    // - generated outputs: LSFG_3_1::waitContextIdle() / LSFG_3_1P::waitContextIdle()
     // - raw current frame: copyAhbImage() waits for the transfer queue submit
     // Doing an extra vkDeviceWaitIdle() here stalls the whole Android-side
     // Vulkan session on every posted frame and injects visible pacing jitter.
@@ -1587,11 +1609,19 @@ void blitOutputToWindow(const AhbImage &out, bool allowGpuPost = true) {
     }
     const uint32_t srcStrideBytes = desc.stride * 4;  // RGBA8888
 
-    // Sample luma on every frame: needed for the feedback-loop gate (not just
-    // the first 30 blits).  32×18 grid keeps it cheap (~576 pixels).
-    uint64_t lumaSum = 0, alphaSum = 0;
-    uint32_t samples = 0;
-    {
+    // The 32×18 luma/alpha grid feeds two consumers: the feedback-loop gate
+    // (needs avgLuma until it latches open) and the first-30-blit debug log.
+    // Once the gate has latched open, both are dead — so skip the ~576-sample
+    // strided read on every subsequent blit (it runs per generated + real
+    // frame, i.e. multiplier-many times per capture, for the whole session on
+    // the CPU-blit fallback path).
+    const uint32_t blitIdx = g.blitLogCount.fetch_add(1, std::memory_order_relaxed);
+    const bool needLumaSample = !g.lumaGateOpen || blitIdx < 30;
+    uint32_t avgLuma  = 0;
+    uint32_t avgAlpha = 0;
+    if (needLumaSample) {
+        uint64_t lumaSum = 0, alphaSum = 0;
+        uint32_t samples = 0;
         const auto *srcBytes = static_cast<const uint8_t *>(srcPtr);
         const uint32_t sW = std::min<uint32_t>(desc.width, 32);
         const uint32_t sH = std::min<uint32_t>(desc.height, 18);
@@ -1605,18 +1635,15 @@ void blitOutputToWindow(const AhbImage &out, bool allowGpuPost = true) {
                 ++samples;
             }
         }
+        avgLuma  = samples > 0 ? static_cast<uint32_t>(lumaSum  / samples) : 0;
+        avgAlpha = samples > 0 ? static_cast<uint32_t>(alphaSum / samples) : 0;
     }
-    const uint32_t avgLuma  = samples > 0 ? static_cast<uint32_t>(lumaSum  / samples) : 0;
-    const uint32_t avgAlpha = samples > 0 ? static_cast<uint32_t>(alphaSum / samples) : 0;
 
     // Log first 30 blits.
-    {
-        const uint32_t idx = g.blitLogCount.fetch_add(1, std::memory_order_relaxed);
-        if (idx < 30) {
-            LOGI("blit #%u src=%ux%u stride=%u avgLuma=%u avgAlpha=%u outWindow=%ux%u",
-                 idx + 1, desc.width, desc.height, desc.stride,
-                 avgLuma, avgAlpha, g.outWidth, g.outHeight);
-        }
+    if (blitIdx < 30) {
+        LOGI("blit #%u src=%ux%u stride=%u avgLuma=%u avgAlpha=%u outWindow=%ux%u",
+             blitIdx + 1, desc.width, desc.height, desc.stride,
+             avgLuma, avgAlpha, g.outWidth, g.outHeight);
     }
 
     // Feedback-loop gate: if setSkipScreenshot failed, MediaProjection captures
@@ -1751,8 +1778,29 @@ void blitOutputToWindow(const AhbImage &out, bool allowGpuPost = true) {
 }
 
 void workerThread() {
+    // Elevate this thread's scheduling priority (best-effort). The pacing loop
+    // sleeps to land each post on a vsync deadline (sleepUntilVsyncAligned); the
+    // 2 ms slack is "below average kernel wake-up jitter", so reducing wake-up
+    // latency under CPU contention directly tightens inter-post spacing. nice
+    // -10 is roughly Android's display-thread band. EPERM is expected for a
+    // non-system app and harmless — we never depend on the elevation.
+    errno = 0;
+    if (setpriority(PRIO_PROCESS, static_cast<id_t>(gettid()), -10) != 0) {
+        LOGI("workerThread: setpriority(-10) failed (errno=%d) — running at default priority", errno);
+    } else {
+        LOGI("workerThread: elevated to nice -10 for tighter pacing");
+    }
+
     int64_t prevCaptureTimestampNs = 0;
     bool havePrevCaptureTimestamp = false;
+
+    // Pacing phase carried ACROSS captures. The previous capture's final
+    // overlay post time anchors the next capture's first post, so the seam
+    // between source frames is paced (>= one vsync slot apart) instead of each
+    // capture restarting its clock at its own waitIdle() and hitching once per
+    // source frame. Unset until the first post.
+    State::Clock::time_point carriedLastPost{};
+    bool haveCarriedPost = false;
 
     // EMA-smoothed capture interval. A single static clamp cannot serve both
     // slow sources (2 fps gif → want ~500 ms paced) and fast sources (60 fps
@@ -1942,16 +1990,35 @@ void workerThread() {
                                  && !g.bypass.load(std::memory_order_relaxed)
                                  && !g.framegenAutoDisabled.load(std::memory_order_relaxed);
         if (runFramegen) {
-            // No semaphores in this minimal path — synchronous via queue idle.
+            // The cross-device inSem/outSem handoff is not wired (see the
+            // cross-device-semaphore follow-up); we sync via waitContextIdle below.
             std::vector<int> outSems;  // empty
+            State::Clock::time_point tPresentDone{};
+            State::Clock::time_point tWaitIdleDone{};
             try {
                 if (g.performanceMode)
                     LSFG_3_1P::presentContext(g.framegenCtxId, /*inSem*/ -1, outSems);
                 else
                     LSFG_3_1::presentContext(g.framegenCtxId, /*inSem*/ -1, outSems);
+                // PROFILE: presentContext returned (CPU-side; GPU work pending).
+                tPresentDone = State::Clock::now();
+                // Wait for framegen's GPU work for THIS frame to finish before we
+                // (a) overwrite the input AHB on the next pushFrame and (b) read
+                // the output AHB for the blit. We wait on this context's last-
+                // presented completion fences (waitContextIdle) instead of a
+                // device-wide vkDeviceWaitIdle: those fences gate exactly this
+                // frame's input-read + output-write + AHB ownership-release
+                // barriers, so it is equally safe but doesn't flush unrelated
+                // work on framegen's device — removing the per-frame whole-device
+                // barrier documented as the biggest single cost. It still throws
+                // on DEVICE_LOST, caught below and routed to the auto-disable path.
+                if (g.performanceMode) LSFG_3_1P::waitContextIdle(g.framegenCtxId);
+                else                   LSFG_3_1::waitContextIdle(g.framegenCtxId);
+                // PROFILE: cross-device sync complete; outputs ready to read.
+                tWaitIdleDone = State::Clock::now();
             } catch (const std::exception &e) {
                 const char *what = e.what() != nullptr ? e.what() : "(null)";
-                LOGE("presentContext threw: %s", what);
+                LOGE("presentContext/waitContextIdle threw: %s", what);
                 // Detect VK_ERROR_DEVICE_LOST (-4): framegen's compute device
                 // is gone (driver crash, OOM, surface-instance state mishap on
                 // Mali-G57 etc.). Every subsequent submit on a lost device
@@ -1967,18 +2034,6 @@ void workerThread() {
                 }
                 continue;
             }
-            // PROFILE: presentContext returned (CPU-side; the GPU work is
-            // still pending on framegen's queue).
-            const auto tPresentDone = State::Clock::now();
-            // Wait for framegen's GPU work to actually finish before we (a)
-            // overwrite the input AHB on the next pushFrame and (b) read the
-            // output AHB for the blit. Framegen and our session use different
-            // VkDevices, so vkDeviceWaitIdle on either is necessary — without
-            // an explicit shared semaphore this is the only correct sync.
-            if (g.performanceMode) LSFG_3_1P::waitIdle();
-            else                   LSFG_3_1::waitIdle();
-            // PROFILE: cross-device sync complete; outputs ready to read.
-            const auto tWaitIdleDone = State::Clock::now();
 
             // Note: a previous revision auto-disabled framegen here when the
             // GPU pipeline was slower than the source cadence. Removed by
@@ -2116,73 +2171,127 @@ void workerThread() {
             prevCaptureTimestampNs = pendingFrame.captureTimestampNs;
             havePrevCaptureTimestamp = pendingFrame.captureTimestampNs > 0;
 
+            // Generated frames actually posted this capture (a paced session may
+            // drop frames the panel can't show). Feeds the HUD counter so it
+            // reflects frames truly put on screen, not frames computed.
+            size_t generatedPosted = 0;
+
             if (suppressGeneratedFrames) {
                 // Very large inter-frame changes make LSFG's occlusion/flow mask
                 // unreliable, most visibly on third-person characters during
                 // quick camera pans. Advance framegen to keep its internal frame
                 // index synchronized, but anchor this pair on the real capture.
                 timedBlit(g.inSlot[newSlot]);
+                carriedLastPost = State::Clock::now();
+                haveCarriedPost = true;
             } else if (!g.outputs.empty() && captureInterval != State::Clock::duration::zero()) {
-                // Pacing strategy differs by regime:
+                // Absolute-timeline pacer. Display order is the generated frames
+                // (interpolated BETWEEN the previous and current capture) then the
+                // real current frame. Two properties the old residual-budget pacer
+                // lacked:
                 //
-                // Fast sources (30+ fps): compute takes a large fraction of the
-                // capture interval, so we need to return to the worker loop
-                // promptly. Sleep only between generated frames using what's left
-                // of the budget, then blit the real frame immediately. Trying to
-                // hold the real frame for its "fair slot" here overflows the
-                // pending queue (cap=4) and causes dropped frames / stutter.
+                //  1. One post per vsync slot. Each post is forced at least
+                //     (period - slack) after the previous one. The old code only
+                //     enforced this when the per-frame step was already >= a vsync
+                //     (slow sources); in the fast / high-multiplier regime the
+                //     guard in sleepUntilVsyncAligned was unreachable, so several
+                //     posts landed in one SurfaceFlinger flip and all but one were
+                //     dropped — the steady-state "bunched" stutter. We floor `step`
+                //     to (period - slack) so the separation is always honoured.
                 //
-                // Slow sources (e.g. 2 fps gif): compute is negligible vs the
-                // interval, so without a hold after the last generated frame, the
-                // real frame would sit on screen for the whole remaining interval
-                // (hundreds of ms) while the generated frames flash by in the
-                // first ms. Here we DO want the hold.
+                //  2. Phase carried across captures (carriedLastPost): the seam is
+                //     paced too, instead of every capture restarting at its own
+                //     waitIdle() and hitching once per source frame.
                 //
-                // Heuristic: if another frame is already queued, we're in the
-                // fast regime (backlog exists) — skip the hold. Otherwise we have
-                // idle time and should pace the real frame too.
+                // When the panel cannot show every generated frame (e.g. 4x from
+                // 60 fps on a 120 Hz display = 2 slots per 16.6 ms interval), the
+                // surplus is DROPPED before blitting rather than blitted then
+                // dropped by SurfaceFlinger: identical on screen, but no wasted
+                // blit and no pending-queue overrun. Even spacing keeps motion
+                // cadence. Flip kDropUnshowable to A/B against blit-all.
+                constexpr bool kDropUnshowable = true;
+
+                const int64_t periodNs = g.vsyncPeriodNs.load(std::memory_order_relaxed);
+                const int64_t slackNs  = g.vsyncSlackNs.load(std::memory_order_relaxed);
+                const auto sep = std::chrono::nanoseconds(
+                    periodNs > 0 ? std::max<int64_t>(1, periodNs - slackNs) : 0);
+
+                // Panel capacity: distinct vsync slots within this capture
+                // interval. Reserve one for the real frame.
+                size_t genToPost = g.outputs.size();
+                if (kDropUnshowable && periodNs > 0 && sep.count() > 0) {
+                    const int64_t intervalNs = std::chrono::duration_cast<
+                        std::chrono::nanoseconds>(captureInterval).count();
+                    const int64_t slots = intervalNs / sep.count();
+                    const int64_t genSlots = slots > 1 ? slots - 1 : 0;
+                    if (static_cast<int64_t>(genToPost) > genSlots) {
+                        genToPost = static_cast<size_t>(genSlots);
+                    }
+                }
+
                 const auto now = State::Clock::now();
                 auto remainingBudget = captureInterval - (now - frameWorkStartedAt);
                 if (remainingBudget < State::Clock::duration::zero()) {
                     remainingBudget = State::Clock::duration::zero();
                 }
-                const auto slotCount = static_cast<int64_t>(g.outputs.size() + 1);
-                const auto step = remainingBudget / slotCount;
+                // Spread the residual budget across the posts we will actually
+                // make, but never tighter than one vsync slot (so the per-flip
+                // separation in sleepUntilVsyncAligned is always reachable).
+                auto step = remainingBudget / static_cast<int64_t>(genToPost + 1);
+                if (step < sep) step = sep;
+
+                // Seam guard: keep this capture's first post >= one slot after the
+                // previous capture's last post. Usually a no-op in the fast regime
+                // (copy+present+waitIdle already exceed a slot, so `now` is already
+                // past), so it adds no latency; it only bites when the worker ran
+                // ahead (slow sources), exactly when separation is needed.
                 auto deadline = now;
-                // Track the time of the most recent unlockAndPost so the
-                // vsync-aligned sleep knows whether a pending deadline would
-                // collide with the SurfaceFlinger slot we just used.
-                auto lastPostedAt = now;
-                for (auto &o : g.outputs) {
-                    // Blit first, then sleep: the generated output is ready the
-                    // moment waitIdle() returns, so delaying the first blit by
-                    // `step` adds deterministic latency to every frame and the
-                    // overlay looks jittery at steady state. Sleep paces the
-                    // gap BEFORE the next blit instead.
-                    timedBlit(o);
+                if (haveCarriedPost && sep.count() > 0) {
+                    const auto earliest = carriedLastPost + sep;
+                    if (deadline < earliest) {
+                        std::this_thread::sleep_until(earliest);
+                        deadline = earliest;
+                    }
+                }
+                auto lastPostedAt = deadline;
+
+                for (size_t j = 0; j < genToPost; ++j) {
+                    // Evenly-spaced subset when showing fewer than all generated
+                    // frames; identity when showing all.
+                    const size_t rawIdx = (genToPost == g.outputs.size())
+                        ? j
+                        : (j * g.outputs.size() + g.outputs.size() / 2) / genToPost;
+                    const size_t idx = std::min(rawIdx, g.outputs.size() - 1);
+                    // Blit first, then sleep: the output is ready the moment
+                    // waitIdle() returns; delaying the blit by `step` would add
+                    // deterministic latency to every frame. The in-loop sleep
+                    // after the LAST generated frame also separates it from the
+                    // real-frame post below — no extra trailing hold needed.
+                    timedBlit(g.outputs[idx]);
                     lastPostedAt = State::Clock::now();
                     deadline += step;
                     if (step > State::Clock::duration::zero()) {
                         deadline = sleepUntilVsyncAligned(deadline, lastPostedAt, step);
                     }
                 }
+                generatedPosted = genToPost;
 
-                // Match the Linux layer behaviour: after the generated intermediary
-                // frames, present the actual current frame so fast camera motion gets
-                // re-anchored to the real capture instead of showing only synthetic
-                // frames back-to-back. Align this final post to vsync too so it
-                // doesn't collide with the previous generated post.
-                if (step > State::Clock::duration::zero()) {
-                    sleepUntilVsyncAligned(State::Clock::now(), lastPostedAt, step);
-                }
+                // Re-anchor on the real current frame so fast camera motion isn't
+                // shown as synthetic frames back-to-back. Its post becomes the
+                // phase anchor for the next capture.
                 timedBlit(g.inSlot[newSlot]);
+                carriedLastPost = State::Clock::now();
+                haveCarriedPost = true;
             } else {
                 for (auto &o : g.outputs) timedBlit(o);
                 timedBlit(g.inSlot[newSlot]);
+                generatedPosted = g.outputs.size();
+                carriedLastPost = State::Clock::now();
+                haveCarriedPost = true;
             }
 
             if (!suppressGeneratedFrames) {
-                g.generatedFrames.fetch_add(g.outputs.size(), std::memory_order_relaxed);
+                g.generatedFrames.fetch_add(generatedPosted, std::memory_order_relaxed);
             }
             g.presentsDone++;  // keep our slot indexing in sync with framegen's frameIdx
 
@@ -2372,7 +2481,11 @@ int initRenderLoop(const char *cacheDir, const RenderLoopConfig &cfg) {
 
     const VkFormat fmt = VK_FORMAT_R8G8B8A8_UNORM;
     for (int i = 0; i < 2; ++i) {
-        rc = createAhbImage(g.vk, renderW, renderH, fmt, g.inSlot[i]);
+        // Input slots: GPU-sampled by framegen every present; CPU-locked only by
+        // the optional anti-artifacts check / warm-up diagnostics. Prefer the
+        // GPU-optimal layout (CPU_READ_RARELY) — see createAhbImage.
+        rc = createAhbImage(g.vk, renderW, renderH, fmt, g.inSlot[i],
+                            /*gpuPreferredLayout=*/true);
         if (rc != kOk) {
             LOGE("createAhbImage(input %d) failed rc=%d", i, rc);
             shutdownRenderLoop();
