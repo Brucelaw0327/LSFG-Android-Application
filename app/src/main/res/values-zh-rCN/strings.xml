@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LSFG Android</string>
+    <string name="accessibility_service_label">LSFG 触控穿透</string>
+    <string name="accessibility_service_description">将 LSFG 悬浮层上的触摸事件转发给底层应用，使帧生成悬浮层可见时你仍能正常操作游戏。</string>
+
+    <string name="notif_channel_session">LSFG 会话</string>
+    <string name="notif_session_title">LSFG 会话运行中</string>
+    <string name="notif_session_text">帧生成悬浮层正在运行。点按可停止。</string>
+
+    <string name="legal_title">法律声明</string>
+    <string name="legal_warning_body"><![CDATA[
+        <b>警告 — 你必须拥有 Steam 正版的 Lossless Scaling。</b><br/><br/>
+        本应用需要 THS 开发的 <b>Lossless Scaling</b> 中的 <b>Lossless.dll</b> 文件。
+        你必须从<b>自己合法购买的</b> Steam 版 Lossless Scaling 中选择该文件。<br/><br/>
+        <b>请勿从第三方渠道下载 Lossless.dll。</b>此举属于侵犯版权。<br/><br/>
+        本应用的开发者：<br/>
+        • <b>不</b>分发 Lossless.dll<br/>
+        • 与 THS 或 Lossless Scaling <b>无任何隶属关系</b><br/>
+        • 对本应用的任何滥用行为<b>不承担责任</b><br/><br/>
+        继续即表示你确认拥有有效的 Lossless Scaling Steam 授权。
+    ]]></string>
+    <string name="legal_accept">我拥有 Lossless Scaling 授权 — 继续</string>
+    <string name="legal_decline">取消</string>
+
+    <string name="nav_dll">选择 DLL</string>
+    <string name="nav_framegen_pacing">帧生成与节奏</string>
+    <string name="nav_image_quality">画质</string>
+    <string name="nav_overlay_display">悬浮层与显示</string>
+    <string name="nav_app">目标应用</string>
+    <string name="nav_tutorial">教程</string>
+    <string name="tutorial_subtitle">LSFG-Android 使用方法</string>
+    <string name="tutorial_intro">按以下步骤充分发挥帧生成效果。点按任意截图可查看原图。</string>
+    <string name="tutorial_empty">教程内容即将添加。将截图放入 res/drawable-nodpi 并在 TutorialScreen.kt 中引用。</string>
+    <string name="tutorial_prompt_title">查看教程？</string>
+    <string name="tutorial_prompt_body">欢迎来到 LSFG-Android！强烈建议使用前先阅读教程——它会带你完成无障碍权限、加载 Lossless.dll、选择目标应用和悬浮层菜单的设置。\n\n之后随时可以从主页的“教程”入口重新打开。</string>
+    <string name="tutorial_prompt_view">查看教程</string>
+    <string name="tutorial_prompt_skip">暂时跳过</string>
+
+    <!-- Section eyebrows -->
+    <string name="section_frame_generation">帧生成</string>
+    <string name="section_pacing">节奏</string>
+    <string name="section_advanced">高级</string>
+    <string name="section_gpu_scaling">GPU — 缩放</string>
+    <string name="section_gpu_enhancement">GPU — 增强</string>
+    <string name="section_gpu_sharpen_color">GPU — 锐化与色彩</string>
+    <string name="section_gpu">GPU</string>
+    <string name="section_npu">NPU</string>
+    <string name="section_cpu">CPU</string>
+    <string name="section_overlay_mode">悬浮层入口</string>
+    <string name="section_overlay_handle">悬浮层把手</string>
+    <string name="param_overlay_mode">悬浮层样式</string>
+    <string name="param_overlay_mode_desc">选择打开游戏内设置面板的方式：可拖动的悬浮图标，或从屏幕边缘滑出的抽屉。</string>
+    <string name="overlay_mode_icon_button">悬浮图标</string>
+    <string name="overlay_mode_drawer">抽屉</string>
+    <string name="overlay_mode_drawer_warning_title">使用滑动抽屉？</string>
+    <string name="overlay_mode_drawer_warning_body">部分设备上边缘滑动抽屉可能无响应，导致你被困在悬浮层里、无法从游戏内部关闭它。推荐使用悬浮图标。仍要使用抽屉吗？</string>
+    <string name="overlay_mode_drawer_warning_confirm">使用抽屉</string>
+    <string name="overlay_mode_drawer_warning_cancel">取消</string>
+    <string name="section_hud">HUD</string>
+    <string name="section_trusted_overlay">触摸穿透</string>
+    <string name="param_trusted_overlay">受信任悬浮层（无障碍）</string>
+    <string name="param_trusted_overlay_desc">将悬浮层托管为受信任的无障碍表面，使点击能穿透到下层应用——某些严格的设备（如 Orange Pi 5 Ultra）会拦截这类点击。代价：会话运行期间悬浮层会覆盖状态栏和导航栏——你无法下拉通知栏或点按主页/返回键。如果你的设备本身能穿透点击请保持关闭；只有无法穿透时才开启。需要先启用 LSFG 无障碍服务。</string>
+    <string name="section_capture_mode">捕获模式</string>
+    <string name="capture_mode_mediaprojection">MediaProjection</string>
+    <string name="capture_mode_shizuku">Shizuku 捕获</string>
+    <string name="capture_mode_root">Root 捕获</string>
+    <string name="capture_mode_desc">MediaProjection 通过 Android 屏幕共享捕获。Shizuku 和 Root 捕获走特权且按目标 UID 过滤的捕获路径，适用于 MediaProjection 会把悬浮层也捕获进去的设备。</string>
+    <string name="pause_on_touch_title">触摸时暂停插帧</string>
+    <string name="pause_on_touch_desc">手指按在屏幕上时自动隐藏插帧层，触摸零延迟，松开约 0.25 秒后恢复。适合刷网页、看视频等场景；玩游戏必须关闭。Shizuku/Root 模式可长按或点按屏幕暂停插帧，MediaProjection 模式只能点按屏幕暂停插帧。</string>
+    <string name="param_frame_graph">帧节奏曲线图</string>
+    <string name="param_frame_graph_desc">在悬浮层中实时显示生成帧的间隔曲线。用于诊断卡顿。</string>
+
+    <string name="dll_status_none">尚未选择 Lossless.dll。</string>
+    <string name="dll_pick_button">选择 Lossless.dll</string>
+    <string name="dll_reextract_button">重新提取着色器</string>
+
+    <string name="param_multiplier">帧倍率</string>
+    <string name="param_multiplier_desc">每个真实帧生成的帧数。2 = 每两帧之间插一帧。手机上建议 3–4。</string>
+    <string name="param_flow_scale">光流缩放</string>
+    <string name="param_flow_scale_desc">内部运动估计的分辨率。越低越快但越不精确。</string>
+    <string name="param_performance_mode">性能模式（LSFG 3.1P）</string>
+    <string name="param_performance_mode_desc">使用更快但画质较低的着色器变体。中端 GPU 推荐。</string>
+    <string name="param_hdr">HDR 模式</string>
+    <string name="param_hdr_desc">仅在设备和游戏都输出 HDR 时启用。</string>
+    <string name="param_anti_artifacts">抗伪影模式</string>
+    <string name="param_anti_artifacts_desc">在镜头快速移动时抑制生成帧，减少角色残缺和扭曲。默认关闭。</string>
+    <string name="param_framegen_fp16">FP16 帧生成着色器</string>
+    <string name="param_framegen_fp16_desc">使用 Lossless.dll 内预编译的半精度着色器变体代替全精度 DXBC 版本。降低 GPU 负载和显存带宽。画质几乎相同；出现异常时自动回退 FP32。</string>
+    <string name="param_npu_post">NPU 图像增强</string>
+    <string name="param_npu_post_desc_available">在专用加速器上运行手工设计的 NNAPI 计算图（锐化、细节增强、色度清理、游戏清晰）。设备：%1$s</string>
+    <string name="param_npu_post_desc_unavailable">已停用：Android 未报告专用 NNAPI 加速器。设备：%1$s</string>
+    <string name="param_npu_preset">NPU 预设</string>
+    <string name="npu_preset_off">关闭</string>
+    <string name="npu_preset_sharpen">锐化</string>
+    <string name="npu_preset_detail_boost">细节</string>
+    <string name="npu_preset_chroma_clean">纯净</string>
+    <string name="npu_preset_game_crisp">游戏</string>
+    <string name="param_npu_amount">NPU 强度</string>
+    <string name="param_npu_amount_desc">增强内核的强度。数值越高画面越锐利，但可能放大压缩伪影。</string>
+    <string name="param_npu_radius">NPU 半径</string>
+    <string name="param_npu_radius_desc">锐化遮罩路径使用的模糊半径。半径越大突出整体轮廓；越小聚焦细节。</string>
+    <string name="param_npu_upscale">NPU 放大倍数</string>
+    <string name="param_npu_upscale_desc">1x 保持输出尺寸；2x 在增强前请求 NPU 双线性放大。</string>
+
+    <string name="param_cpu_post">CPU 后处理</string>
+    <string name="param_cpu_post_desc">在 NPU 阶段之后应用的纯 CPU 像素处理。开销低、随时可用，可在预设之上调节饱和度、自然度和暗角。</string>
+    <string name="param_cpu_preset">CPU 预设</string>
+    <string name="cpu_preset_off">关闭</string>
+    <string name="cpu_preset_enhance_lut">增强</string>
+    <string name="cpu_preset_warm">暖色</string>
+    <string name="cpu_preset_cool">冷色</string>
+    <string name="cpu_preset_vignette">暗角</string>
+    <string name="cpu_preset_gamer_sharp">锐利</string>
+    <string name="cpu_preset_cinematic">电影感</string>
+    <string name="param_cpu_strength">CPU 强度</string>
+    <string name="param_cpu_strength_desc">控制当前 CPU 预设的主强度（对比度提升、锐化量、电影感混合等）。</string>
+    <string name="param_cpu_saturation">饱和度</string>
+    <string name="param_cpu_saturation_desc">0 为去色；50 为中性；拉满则色彩浓艳。</string>
+    <string name="param_cpu_vibrance">自然度</string>
+    <string name="param_cpu_vibrance_desc">提升低饱和像素而不放大已经鲜艳的部分。适合改善发灰的 HUD 和肤色。</string>
+    <string name="param_cpu_vignette">暗角</string>
+    <string name="param_cpu_vignette_desc">从半径 60% 处开始按余弦衰减压暗四角。</string>
+    <string name="param_gpu_post">GPU 放大 / 增强器</string>
+    <string name="param_gpu_post_desc">使用 Vulkan GPU 后处理方法进行图像放大与增强。</string>
+    <string name="param_gpu_stage">GPU 处理顺序</string>
+    <string name="gpu_stage_before_lsfg">真实帧优先</string>
+    <string name="gpu_stage_after_lsfg">最终悬浮层画面</string>
+    <string name="gpu_method_fsr1">FSR 1 EASU + RCAS</string>
+    <string name="gpu_method_cas">AMD CAS</string>
+    <string name="gpu_method_nis">NVIDIA NIS</string>
+    <string name="gpu_method_lanczos">Lanczos</string>
+    <string name="gpu_method_bicubic">Bicubic</string>
+    <string name="gpu_method_bilinear">Bilinear</string>
+    <string name="gpu_method_catmull">Catmull-Rom</string>
+    <string name="gpu_method_mitchell">Mitchell-Netravali</string>
+    <string name="gpu_method_anime4k_fast">Anime4K Fast</string>
+    <string name="gpu_method_anime4k_restore">Anime4K Restore</string>
+    <string name="gpu_method_xbrz">xBRZ</string>
+    <string name="gpu_method_edge_directed">边缘导向</string>
+    <string name="gpu_method_unsharp">锐化遮罩</string>
+    <string name="gpu_method_luma">亮度锐化</string>
+    <string name="gpu_method_contrast">对比度自适应</string>
+    <string name="gpu_method_deband">去色带</string>
+    <string name="param_gpu_upscale">GPU 放大倍数</string>
+    <string name="param_gpu_upscale_desc">控制需要放大的算法所请求的输出缩放比例。</string>
+    <string name="param_gpu_sharpness">GPU 锐度</string>
+    <string name="param_gpu_sharpness_desc">控制 RCAS/NIS/CAS 类锐化强度。</string>
+    <string name="param_gpu_strength">GPU 增强强度</string>
+    <string name="param_gpu_strength_desc">控制非缩放类增强通道的强度。</string>
+    <string name="param_fps_counter">悬浮层 FPS 计数</string>
+    <string name="param_fps_counter_desc">在悬浮层左上角显示小型 FPS 读数。MediaProjection 统计可见的捕获帧；Shizuku 捕获统计特权 UID 过滤后的目标帧。</string>
+    <string name="param_drawer_edge">抽屉把手位置</string>
+    <string name="param_drawer_edge_desc">选择游戏内抽屉把手出现在悬浮层的哪一侧。</string>
+    <string name="drawer_edge_left">左</string>
+    <string name="drawer_edge_right">右</string>
+    <string name="drawer_edge_top">上</string>
+    <string name="drawer_edge_bottom">下</string>
+
+    <string name="app_picker_title">选择目标应用</string>
+    <string name="app_picker_hint">选择要应用帧生成的游戏或应用。开始会话时会自动启动它。</string>
+
+    <string name="nav_automatic_overlay">自动悬浮层</string>
+    <string name="automatic_overlay_title">自动悬浮层</string>
+    <string name="automatic_overlay_hint">选择从桌面打开时自动显示 LSFG 启动器的应用。游戏上方会出现一个小悬浮图标，点按即可启动帧生成悬浮层。</string>
+    <string name="automatic_overlay_a11y_required">启用 LSFG 无障碍服务，以便应用检测所选游戏何时被打开。</string>
+    <string name="automatic_overlay_a11y_action">打开无障碍设置</string>
+    <string name="automatic_overlay_count_zero">无 — 点按添加</string>
+    <string name="automatic_overlay_count_n">已配置 %1$d 个应用</string>
+    <string name="auto_overlay_sheet_target">当前应用</string>
+    <string name="auto_overlay_sheet_activate">启动帧生成悬浮层</string>
+    <string name="auto_overlay_sheet_disable">为此应用禁用自动悬浮层</string>
+    <string name="auto_overlay_sheet_close">关闭</string>
+    <string name="auto_overlay_sheet_refresh">刷新当前应用</string>
+    <string name="auto_overlay_sheet_intro">点按开始此应用的 LSFG 捕获会话。Android 会要求你确认屏幕录制。</string>
+
+
+    <string name="perm_overlay_missing">需要悬浮窗权限。请授予“显示在其他应用上层”。</string>
+    <string name="perm_capture_denied">屏幕捕获被拒绝。没有它 LSFG 无法运行。</string>
+
+
+    <string name="a11y_info">可选。没有此服务时 LSFG 也能全不透明渲染并把触摸转发给游戏。仅当你在特定设备上发现渲染问题时才需要启用。</string>
+
+    <string name="crash_dialog_title">LSFG 上次运行崩溃</string>
+    <string name="crash_dialog_body">已保存一份报告。你可以分享给开发者帮助排查问题。已包含设备和扩展信息——不含任何个人数据。</string>
+    <string name="crash_dialog_share">分享报告</string>
+    <string name="crash_dialog_dismiss">关闭</string>
+    <string name="crash_dialog_view">查看</string>
+    <string name="crash_export_log">导出诊断日志</string>
+    <string name="crash_export_none">暂无诊断日志——请先运行一次会话。</string>
+
+    <!-- Benchmark mode -->
+    <string name="benchmark_title">基准测试</string>
+    <string name="benchmark_home_button">运行基准测试</string>
+    <string name="benchmark_intro">以固定预设连续运行三轮（倍率 ×2、×3、×4）并生成可分享的报告。在性能调整前后运行作为基准，用于对比差异。</string>
+    <string name="benchmark_preset_summary">光流缩放 0.70 · 性能模式 开 · 抗伪影 关 · 后处理 关 · 垂直同步 自动</string>
+    <string name="benchmark_duration_summary">每轮：60 秒采样 + 2 秒预热。总计约 3 分钟，另加目标应用启动时间。</string>
+    <string name="benchmark_dual_precision_summary">此 GPU 支持 FP16——基准测试将跑两遍（先 FP32 后 FP16），在同一报告中直接对比数据。</string>
+    <string name="benchmark_requires_target">请先选择目标应用（在“自动悬浮层”页面）。</string>
+    <string name="benchmark_start">开始基准测试</string>
+    <string name="benchmark_cancel">取消</string>
+    <string name="benchmark_share_report">分享上次报告</string>
+    <string name="benchmark_running_warmup">预热 ×%1$d — 剩余 %2$d 秒</string>
+    <string name="benchmark_running_sampling">第 %1$d/%2$d 轮 — 倍率 ×%3$d — 剩余 %4$d 秒</string>
+    <string name="benchmark_completed">基准测试完成</string>
+    <string name="benchmark_completed_body">报告已保存至 %1$s。使用分享面板发送。</string>
+    <string name="benchmark_failed">基准测试失败：%1$s</string>
+    <string name="benchmark_no_report">暂无报告——请先运行一次基准测试。</string>
+    <string name="automatic_overlay_watcher_body">未开启无障碍：LSFG 正在后台通过 Shizuku/Root 探测前台应用，检测到所选应用打开时显示启动器图标。建议在最近任务中锁定 LSFG，防止后台服务被系统清理。</string>
+    <string name="auto_overlay_watcher_notif">自动悬浮层待机中</string>
+    <string name="auto_overlay_small_window_stop">目标应用已进入小窗，会话已自动结束</string>
+    <string name="perm_go">去授权</string>
+    <string name="perm_later">暂不</string>
+    <string name="state_on">开</string>
+    <string name="state_off">关</string>
+    <string name="state_none">无</string>
+    <string name="preset_smooth">流畅</string>
+    <string name="preset_balanced">均衡</string>
+    <string name="preset_low_latency">低延迟</string>
+    <string name="preset_custom">自定义</string>
+    <string name="preset_custom_long">自定义（游戏内悬浮面板调节）</string>
+    <string name="loading_apps">正在加载已安装应用…</string>
+    <string name="no_match">没有匹配“%1$s”的应用</string>
+    <string name="toast_fg_off">已关闭帧生成，会话已结束</string>
+    <string name="toast_overlay_perm">LSFG 悬浮球需要“显示在应用上层”权限，请在系统设置中允许</string>
+    <string name="home_overlay_perm_title">需要悬浮窗权限</string>
+    <string name="home_overlay_perm_body">悬浮球和插帧画面都依赖「显示在应用上层」权限。当前未授权，悬浮球将无法显示。</string>
+    <string name="home_tagline">通过 Vulkan 实现帧生成</string>
+    <string name="home_ready_shizuku">已就绪，可开始 Shizuku 捕获模式。帧从目标 UID 直接捕获，LSFG 悬浮层不会被反馈进自身。</string>
+    <string name="home_ready_root">已就绪，可开始 root 捕获模式。以 root 权限从目标 UID 捕获帧——不会弹出录屏对话框。</string>
+    <string name="home_ready_mp">已就绪。当 Android 询问共享内容时，请选择目标应用，而不是整个屏幕。</string>
+    <string name="home_not_ready">完成下方第 1、2 步即可开启会话。</string>
+    <string name="home_pacing_title">节奏预设</string>
+    <string name="home_pacing_current">当前预设：%1$s</string>
+    <string name="home_pacing_guide">流畅——画面最稳，适合看视频、慢节奏游戏；操作响应稍慢。
+低延迟——操作最跟手，适合快节奏射击/动作游戏；帧率波动时偶尔顿一下。
+均衡——两者折中，大多数场景直接选这个。</string>
+    <string name="home_more">更多</string>
+    <string name="home_reread_legal">重新阅读法律声明</string>
+    <string name="params_fg_title">LSFG 帧生成</string>
+    <string name="params_fg_desc">帧生成总开关。关闭 = 原始捕获直通（不做插帧）。</string>
+    <string name="params_pacing_desc">节奏控制生成帧的时机——预设、垂直同步对齐和 FPS 上限。完整的节奏调节只能在游戏内悬浮层菜单中进行（高级 EMA/松弛/队列滑块）。</string>
+    <string name="fmt_current_preset">当前预设：%1$s</string>
+    <string name="fmt_vsync">垂直同步对齐：%1$s</string>
+    <string name="fmt_fpscap">FPS 上限：%1$s</string>
+    <string name="params_changes_note">更改在下次会话开始时生效。会话进行中时，可打开游戏内抽屉实时调整数值。</string>
+    <string name="auto_always_on">常驻所有应用</string>
+    <string name="auto_always_on_desc">悬浮球在所有应用和桌面常驻，点开面板即可对当前应用开关插帧</string>
+    <string name="auto_perm_missing_title">悬浮窗权限未授予</string>
+    <string name="auto_perm_missing_desc">悬浮球和插帧画面都需要“显示在应用上层”权限，点此前往系统设置开启</string>
+    <string name="dll_extracting">正在提取并转换着色器…</string>
+    <string name="dll_source">来源</string>
+    <string name="dll_pick_hint">请从你 Steam 正版 Lossless Scaling 的安装目录中选取 Lossless.dll。</string>
+    <string name="hud_fps_stats">真实 %1$s 帧/s · 总计 %2$s 帧/s（延迟 %3$s ms · 队列 %4$s ms）</string>
+    <string name="bench_remaining">%1$s · 剩余 %2$d 秒</string>
+    <string name="bench_precision">精度：%1$s</string>
+    <string name="legal_important">重要提示</string>
+    <string name="drawer_section_framegen">帧生成</string>
+    <string name="drawer_label_lsfg_fg">LSFG 帧生成</string>
+    <string name="drawer_label_perf_mode">性能模式</string>
+    <string name="drawer_label_hdr">HDR 模式</string>
+    <string name="drawer_label_antialias">抗伪影</string>
+    <string name="drawer_label_fp16">FP16 帧生成着色器</string>
+    <string name="drawer_label_mult">帧倍率</string>
+    <string name="drawer_label_flow_scale">光流缩放</string>
+    <string name="drawer_section_pacing">节奏</string>
+    <string name="drawer_section_hud">HUD 与悬浮层</string>
+    <string name="drawer_label_fps">FPS 计数</string>
+    <string name="drawer_label_graph">帧节奏曲线图</string>
+    <string name="drawer_handle">抽屉把手</string>
+    <string name="drawer_end_session">结束会话</string>
+    <string name="drawer_label_vsync">垂直同步对齐节奏</string>
+    <string name="drawer_label_fps_cap">FPS 上限</string>
+    <string name="drawer_unlimited">无限制</string>
+    <string name="drawer_section_advanced">高级</string>
+    <string name="drawer_advanced_note">手动更改会将预设切换为自定义。错误配置可能降低流畅度。</string>
+    <string name="drawer_label_ema">EMA 平滑系数</string>
+    <string name="drawer_label_outlier">离群帧比例</string>
+    <string name="drawer_label_slack">垂直同步松弛</string>
+    <string name="drawer_label_queue">队列深度</string>
+    <string name="drawer_reset">恢复默认</string>
+    <string name="drawer_section_gpu">画质 — GPU</string>
+    <string name="drawer_label_gpu_post">GPU 处理</string>
+    <string name="drawer_section_npu">画质 — NPU</string>
+    <string name="drawer_section_cpu">画质 — CPU</string>
+    <string name="drawer_label_cpu_post">CPU 后处理</string>
+    <string name="tut_step_n">第 %1$s 步</string>
+    <string name="tut_a11y_1_title">1. 无障碍权限 — 第 1 步</string>
+    <string name="tut_a11y_1_desc">LSFG-Android 需要无障碍权限才能正确驱动悬浮层和帧生成。可以从系统设置应用直接打开设备的无障碍设置，也可以点按 LSFG-Android 主屏幕右上角的无障碍图标进入。</string>
+    <string name="tut_a11y_2_title">1. 无障碍权限 — 第 2 步</string>
+    <string name="tut_a11y_2_desc">在无障碍设置列表中找到并点按“LSFG 触控穿透”。</string>
+    <string name="tut_a11y_3_title">1. 无障碍权限 — 第 3 步</string>
+    <string name="tut_a11y_3_desc">按照截图所示，打开 LSFG-Android 的无障碍权限开关。</string>
+    <string name="tut_a11y_4_title">1. 无障碍权限 — 第 4 步</string>
+    <string name="tut_a11y_4_desc">如果开关打不开，你的设备很可能在限制侧载应用的受限设置。打开 LSFG-Android 的应用信息页面，看右上角——你会看到一个菜单图标（截图中红框标出）。点按它并启用出现的选项（通常是“允许受限设置”）。完成后返回重复上一步——无障碍开关现在就能打开了。</string>
+    <string name="tut_dll_1_title">2. 加载 Lossless.dll — 第 1 步</string>
+    <string name="tut_dll_1_desc">从主屏幕点按“选择 DLL”，然后选择你自己那份 Lossless Scaling 中的 Lossless.dll 文件。</string>
+    <string name="tut_dll_2_title">2. 加载 Lossless.dll — 第 2 步</string>
+    <string name="tut_dll_2_desc">请仔细阅读法律声明。使用本应用你必须拥有从 Steam 购买的正版 Lossless Scaling——加载的 Lossless.dll 必须来自你自己的副本。本应用不附带该 DLL，以后也不会。</string>
+    <string name="tut_dll_3_title">2. 加载 Lossless.dll — 第 3 步</string>
+    <string name="tut_dll_3_desc">使用系统文件选择器，从你的 Lossless Scaling 副本中选取 Lossless.dll。</string>
+    <string name="tut_dll_4_title">2. 加载 Lossless.dll — 第 4 步</string>
+    <string name="tut_dll_4_desc">DLL 处理完成后你会来到这个页面——着色器已提取完毕，可以使用了。</string>
+    <string name="tut_target_1_title">3. 选择目标应用 — 第 1 步</string>
+    <string name="tut_target_1_desc">要选择对哪个应用启用帧生成，打开主菜单的第 2 项——“目标应用”。</string>
+    <string name="tut_target_2_title">3. 选择目标应用 — 第 2 步</string>
+    <string name="tut_target_2_desc">你会看到设备上安装的所有应用和游戏。用搜索栏快速找到目标，点按它将其设为帧生成的目标应用。</string>
+    <string name="tut_overlay_1_title">4. 悬浮层与显示 — 第 1 步</string>
+    <string name="tut_overlay_1_desc">此分区包含与 LSFG 悬浮层及其屏幕显示方式相关的全部设置。</string>
+    <string name="tut_overlay_2_title">4. 悬浮层与显示 — 第 2 步</string>
+    <string name="tut_overlay_2_desc">此设置控制会话中如何打开悬浮层菜单。默认是图标按钮：会话期间点按它即可打开实时设置抽屉。也可以切换为滑入式抽屉（从屏幕边缘向中心拖动）。警告：某些 Android 设备上抽屉模式不可靠，可能导致无法打开菜单、甚至无法关闭悬浮层。若遇到这种情况，可能需要重启设备才能恢复图标模式。建议优先使用图标按钮。</string>
+    <string name="tut_overlay_3_title">4. 悬浮层与显示 — 第 3 步</string>
+    <string name="tut_overlay_3_desc">如果你的设备支持抽屉，可以用此设置选择它停靠在屏幕哪一侧（左、右、上、下）。</string>
+    <string name="tut_overlay_4_title">4. 悬浮层与显示 — 第 4 步</string>
+    <string name="tut_overlay_4_desc">这里可以启用屏幕上的 FPS 计数器和帧节奏曲线图。注意：这些读数是尽力而为的估计值，未必 100%% 准确。</string>
+    <string name="tut_overlay_5_title">4. 悬浮层与显示 — 第 5 步</string>
+    <string name="tut_overlay_5_desc">此选项通过无障碍服务而非普通系统悬浮窗来托管悬浮层。如果标准悬浮层在你的设备上表现异常，试试开启它——它对激进的厂商后台查杀更健壮。</string>
+    <string name="tut_overlay_6_title">4. 悬浮层与显示 — 第 6 步</string>
+    <string name="tut_overlay_6_desc">在 MediaProjection 捕获（默认）和 Shizuku 辅助捕获之间选择。如果你已经试过 MediaProjection——包括开启和关闭上一步的无障碍托管悬浮层——悬浮层仍然不工作，就切换到 Shizuku 作为备用方案。</string>
+    <string name="tut_fg_1_title">5. 帧生成与节奏 — 第 1 步</string>
+    <string name="tut_fg_1_desc">此分区汇集了控制帧生成行为的所有设置。</string>
+    <string name="tut_fg_2_title">5. 帧生成与节奏 — 第 2 步</string>
+    <string name="tut_fg_2_desc">这些是我认为在骁龙 8 Elite Gen 5 等顶级设备上的最优设置——这类芯片上光流缩放可以放心拉到 1。即使是旗舰机，我也建议使用 LSFG 的性能变体而非标准变体。抗伪影模式仍是实验性的，不建议开启。</string>
+    <string name="tut_launch_1_title">6. 启动悬浮层 — 第 1 步</string>
+    <string name="tut_launch_1_desc">全部配置完成后，点按“启动 LSFG 会话”，即可同时启动目标应用和帧生成悬浮层。</string>
+    <string name="tut_launch_2_title">6. 启动悬浮层 — 第 2 步</string>
+    <string name="tut_launch_2_desc">某些 Android 设备此时会弹出屏幕共享选择器。出现时，请选择仅共享你在 LSFG-Android 中选定的那个目标应用——而不是整个屏幕。</string>
+    <string name="tut_launch_3_title">6. 启动悬浮层 — 第 3 步</string>
+    <string name="tut_launch_3_desc">目标应用将带着运行在其上的 LSFG 悬浮层启动，帧生成随之生效。</string>
+    <string name="tut_menu_1_title">7. 悬浮层菜单 — 第 1 步</string>
+    <string name="tut_menu_1_desc">如果你在设置中选了图标按钮，会话期间它会显示在屏幕一侧——点按即可打开悬浮层菜单。</string>
+    <string name="tut_menu_2_title">7. 悬浮层菜单 — 第 2 步</string>
+    <string name="tut_menu_2_desc">如果你在设置中选了抽屉，它会出现在你选择的屏幕边缘。打开悬浮层菜单的方法：把抽屉从边缘向屏幕中心拖动。</string>
+    <string name="tut_menu_3_title">7. 悬浮层菜单 — 第 3 步</string>
+    <string name="tut_menu_3_desc">这些是悬浮层菜单里的全部选项——列出的每个参数都可以在会话期间实时调整。</string>
+<string name="session_running">会话运行中</string>
+    <string name="session_idle">会话空闲</string>
+    <string name="session_start">开始会话</string>
+    <string name="tut_menu_4_title">7. 悬浮层菜单 — 第 4 步</string>
+</resources>
