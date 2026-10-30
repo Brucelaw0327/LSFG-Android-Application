@@ -6,7 +6,14 @@
 
     <string name="notif_channel_session">LSFG Session</string>
     <string name="notif_session_title">LSFG session active</string>
-    <string name="notif_session_text">Frame generation overlay is running. Tap to stop.</string>
+    <string name="notif_session_text">Frame generation overlay is running. Tap to open the app, use the button below to end the session.</string>
+
+    <!-- Notification-shade quick toggle -->
+    <string name="quick_toggle_channel">LSFG quick toggle</string>
+    <string name="quick_toggle_title">LSFG frame generation</string>
+    <string name="quick_toggle_target_text">Standby — target: %1$s</string>
+    <string name="quick_toggle_no_target">No target app — tap to open LSFG and choose one</string>
+    <string name="quick_toggle_mp_hint">MediaProjection mode — start the session from inside the app</string>
 
     <string name="legal_title">Legal notice</string>
     <string name="legal_warning_body"><![CDATA[

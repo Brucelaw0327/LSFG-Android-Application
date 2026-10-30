@@ -6,7 +6,14 @@
 
     <string name="notif_channel_session">LSFG 会话</string>
     <string name="notif_session_title">LSFG 会话运行中</string>
-    <string name="notif_session_text">帧生成悬浮层正在运行。点按可停止。</string>
+    <string name="notif_session_text">帧生成悬浮层正在运行。点按打开应用，用下方按钮结束会话。</string>
+
+    <!-- 通知栏快捷开关 -->
+    <string name="quick_toggle_channel">LSFG 快捷开关</string>
+    <string name="quick_toggle_title">LSFG 帧生成</string>
+    <string name="quick_toggle_target_text">待机 — 目标：%1$s</string>
+    <string name="quick_toggle_no_target">未选择目标应用 — 点按打开 LSFG 选择</string>
+    <string name="quick_toggle_mp_hint">MediaProjection 模式 — 请在应用内启动会话</string>
 
     <string name="legal_title">法律声明</string>
     <string name="legal_warning_body"><![CDATA[

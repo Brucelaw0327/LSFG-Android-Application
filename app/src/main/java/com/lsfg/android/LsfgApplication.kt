@@ -8,6 +8,7 @@ import com.lsfg.android.session.AutoOverlayWatcherService
 import com.lsfg.android.session.CrashReporter
 import com.lsfg.android.session.LsfgLog
 import com.lsfg.android.session.PermissionsHelper
+import com.lsfg.android.session.SessionQuickToggle
 
 class LsfgApplication : Application() {
     override fun onCreate() {
@@ -17,6 +18,10 @@ class LsfgApplication : Application() {
         // already loads the .so; the call below only configures the handler).
         CrashReporter.install(this)
         LsfgLog.init(this)
+        // Notification-shade quick toggle: show the standby notification so a
+        // Shizuku/Root session can be started for the last target without
+        // opening the app. No-op while a session runs or in MediaProjection mode.
+        runCatching { SessionQuickToggle.show(this) }
         // Always-show launcher dot: start the foreground watcher as soon as the
         // app opens so the handle appears without visiting the overlay screen.
         // Skipped for MediaProjection (no privileged foreground probe) and when

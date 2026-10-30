@@ -772,6 +772,10 @@ class LsfgForegroundService : Service() {
         lastStartId = startId
         when (intent?.action) {
             ACTION_START -> handleStart(intent)
+            ACTION_QUICK_START -> {
+                handleQuickStart()
+                return START_NOT_STICKY
+            }
             ACTION_STOP -> {
                 LsfgLog.i(TAG, "ACTION_STOP received — stopSelf()")
                 stopSelf()
@@ -779,6 +783,52 @@ class LsfgForegroundService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    /**
+     * Notification-shade quick start: resolve the persisted target package and
+     * capture source right now and start a Shizuku/Root session without
+     * opening the main UI. MediaProjection cannot be honoured here (it needs
+     * the consent dialog), so in that case we open the app instead.
+     *
+     * The service was started via startForegroundService() from the
+     * notification PendingIntent, so startForeground() MUST run before any
+     * early-exit path — otherwise the system raises
+     * ForegroundServiceDidNotStartInTimeException.
+     */
+    private fun handleQuickStart() {
+        startForeground(NOTIF_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        SessionQuickToggle.hide(this)
+        val prefs = LsfgPreferences(this).load()
+        val target = prefs.targetPackage
+        val source = prefs.captureSource
+        if (target == null || source == CaptureSource.MEDIA_PROJECTION) {
+            LsfgLog.i(TAG, "quick start: target=$target source=$source — opening app instead")
+            Toast.makeText(
+                this,
+                if (target == null) getString(R.string.quick_toggle_no_target)
+                else getString(R.string.quick_toggle_mp_hint),
+                Toast.LENGTH_LONG,
+            ).show()
+            runCatching {
+                startActivity(
+                    Intent(this, com.lsfg.android.ui.MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }.onFailure { LsfgLog.w(TAG, "quick start: opening app failed", it) }
+            stopSelf()
+            return
+        }
+        LsfgLog.i(TAG, "quick start: source=$source target=$target")
+        val intent = when (source) {
+            CaptureSource.SHIZUKU -> buildShizukuStartIntent(this, target, prefs.fpsCounterEnabled)
+            CaptureSource.ROOT -> buildRootStartIntent(this, target, prefs.fpsCounterEnabled)
+            else -> {
+                stopSelf()
+                return
+            }
+        }
+        handleStart(intent)
     }
 
     override fun onDestroy() {
@@ -846,9 +896,22 @@ class LsfgForegroundService : Service() {
         // The session is gone — the launcher dot may want to re-appear if the
         // target app is still in the foreground.
         AutoOverlayController.onSessionStopped(applicationContext)
+        // Bring back the notification-shade quick toggle for the next session.
+        // Delayed re-check: during a rotation auto-restart the replacement
+        // session has already taken over by the time this runs (its handleStart
+        // set activeSessionTarget, which onDestroy nulled above) — in that case
+        // the quick toggle must stay hidden.
+        mainHandler.postDelayed({
+            if (activeSessionTarget == null) {
+                SessionQuickToggle.show(applicationContext)
+            }
+        }, 600L)
     }
 
     private fun handleStart(intent: Intent) {
+        // The standby quick-toggle notification would duplicate the session
+        // notification's controls — take it down for the session's lifetime.
+        SessionQuickToggle.hide(this)
         // Rotation auto-restart delivers its queued START while this same
         // instance may still be running the previous session. A second live
         // handleStart pass would leak the first overlay/drawer pair as a
@@ -1813,12 +1876,21 @@ class LsfgForegroundService : Service() {
             this, 0, stopIntent,
             android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        // Tap on the notification body opens the app; ending the session is an
+        // explicit action button (an accidental body tap killing the session
+        // mid-game is nasty).
+        val openApp = android.app.PendingIntent.getActivity(
+            this, 0,
+            Intent(this, com.lsfg.android.ui.MainActivity::class.java),
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.notif_session_title))
             .setContentText(getString(R.string.notif_session_text))
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setOngoing(true)
-            .setContentIntent(stopPending)
+            .setContentIntent(openApp)
+            .addAction(0, getString(R.string.drawer_end_session), stopPending)
             .build()
     }
 
@@ -1851,6 +1923,9 @@ class LsfgForegroundService : Service() {
 
         const val ACTION_START = "com.lsfg.android.action.START_SESSION"
         const val ACTION_STOP = "com.lsfg.android.action.STOP_SESSION"
+        /** Notification-shade quick start: resolves prefs at click time and
+         *  starts a Shizuku/Root session for the persisted target package. */
+        const val ACTION_QUICK_START = "com.lsfg.android.action.QUICK_START_SESSION"
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
         const val EXTRA_TARGET_PACKAGE = "target_package"

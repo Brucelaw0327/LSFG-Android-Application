@@ -56,6 +56,10 @@ class AutoOverlayWatcherService : Service() {
         }
         schedulePoll(FIRST_DELAY_MS)
         scheduleWindowCheck(WINDOW_CHECK_FIRST_DELAY_MS)
+        // Watcher is the always-on process anchor — make sure the standby
+        // quick-toggle notification is up (it hides itself while a session runs
+        // or in MediaProjection mode).
+        runCatching { SessionQuickToggle.show(applicationContext) }
         LsfgLog.i(TAG, "auto overlay watcher started")
     }
 
@@ -72,6 +76,9 @@ class AutoOverlayWatcherService : Service() {
         AutoOverlayController.setForegroundRefreshHook(null)
         runCatching { shizukuEngine?.stop() }
         shizukuEngine = null
+        // Watcher gone — the quick toggle would advertise a start path whose
+        // process anchor just disappeared. The next watcher/app start re-shows it.
+        runCatching { SessionQuickToggle.hide(applicationContext) }
         LsfgLog.i(TAG, "auto overlay watcher stopped")
         super.onDestroy()
     }
