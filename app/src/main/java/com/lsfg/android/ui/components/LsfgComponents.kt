@@ -122,14 +122,13 @@ fun SectionHeader(
     }
 }
 
-enum class StatusTone { Good, Warn, Bad, Neutral }
+enum class StatusTone { Good, Warn, Neutral }
 
 @Composable
 fun StatusPill(label: String, tone: StatusTone, modifier: Modifier = Modifier) {
     val color = when (tone) {
         StatusTone.Good -> LsfgStatusGood
         StatusTone.Warn -> LsfgStatusWarn
-        StatusTone.Bad -> LsfgStatusBad
         StatusTone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val bg = color.copy(alpha = 0.12f)
@@ -481,13 +480,12 @@ fun LsfgSecondaryButton(
 }
 
 /**
- * App top bar with optional back + trailing icon slot.
+ * App top bar with optional back button.
  */
 @Composable
 fun LsfgTopBar(
     title: String,
     onBack: (() -> Unit)? = null,
-    trailing: (@Composable RowScope.() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -520,9 +518,6 @@ fun LsfgTopBar(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
-        if (trailing != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) { trailing() }
-        }
     }
 }
 

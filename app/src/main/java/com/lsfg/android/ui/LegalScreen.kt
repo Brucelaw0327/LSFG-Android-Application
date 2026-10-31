@@ -85,7 +85,6 @@ fun LegalScreen(nav: NavHostController) {
         Button(
             onClick = {
                 prefs.setLegalAccepted(true)
-                refreshConfigState(prefs)
                 nav.navigate(Routes.DLL) {
                     popUpTo(Routes.HOME) { inclusive = false }
                 }

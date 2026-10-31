@@ -91,7 +91,6 @@ fun HomeScreen(nav: NavHostController) {
 
     var lastError by remember { mutableStateOf<String?>(null) }
     var pendingTargetPkg by remember { mutableStateOf<String?>(null) }
-    var pendingCaptureSource by remember { mutableStateOf(CaptureSource.MEDIA_PROJECTION) }
     var showCrashDialog by remember { mutableStateOf(false) }
     var crashPreview by remember { mutableStateOf("") }
     var showCrashDetail by remember { mutableStateOf(false) }
@@ -266,9 +265,8 @@ fun HomeScreen(nav: NavHostController) {
     ) { result ->
         val data = result.data
         val target = pendingTargetPkg
-        val source = pendingCaptureSource
+        val source = CaptureSource.MEDIA_PROJECTION
         pendingTargetPkg = null
-        pendingCaptureSource = CaptureSource.MEDIA_PROJECTION
         if (result.resultCode != android.app.Activity.RESULT_OK || data == null) {
             lastError = ctx.getString(R.string.perm_capture_denied)
             return@rememberLauncherForActivityResult
@@ -436,8 +434,7 @@ fun HomeScreen(nav: NavHostController) {
                         )
                         return@SessionCTA
                     }
-                    pendingCaptureSource = CaptureSource.MEDIA_PROJECTION
-                    val captureIntent =
+                                val captureIntent =
                         mpm.createScreenCaptureIntent(MediaProjectionConfig.createConfigForUserChoice())
                     projectionLauncher.launch(captureIntent)
                 },
@@ -499,7 +496,6 @@ fun HomeScreen(nav: NavHostController) {
                     selected = state.captureSource == CaptureSource.MEDIA_PROJECTION,
                     onClick = {
                         prefs.setCaptureSource(CaptureSource.MEDIA_PROJECTION)
-                        refreshConfigState(prefs)
                     },
                     label = { Text(stringResource(R.string.capture_mode_mediaprojection)) },
                     modifier = Modifier.weight(1f),
@@ -508,7 +504,6 @@ fun HomeScreen(nav: NavHostController) {
                     selected = state.captureSource == CaptureSource.SHIZUKU,
                     onClick = {
                         prefs.setCaptureSource(CaptureSource.SHIZUKU)
-                        refreshConfigState(prefs)
                     },
                     label = { Text(stringResource(R.string.capture_mode_shizuku)) },
                     modifier = Modifier.weight(1f),
@@ -517,7 +512,6 @@ fun HomeScreen(nav: NavHostController) {
                     selected = state.captureSource == CaptureSource.ROOT,
                     onClick = {
                         prefs.setCaptureSource(CaptureSource.ROOT)
-                        refreshConfigState(prefs)
                     },
                     label = { Text(stringResource(R.string.capture_mode_root)) },
                     modifier = Modifier.weight(1f),
@@ -541,7 +535,6 @@ fun HomeScreen(nav: NavHostController) {
                     checked = state.pauseOnTouch,
                     onCheckedChange = {
                         prefs.setPauseOnTouch(it)
-                        refreshConfigState(prefs)
                     },
                 )
             }
@@ -563,7 +556,6 @@ fun HomeScreen(nav: NavHostController) {
                     checked = state.fpsGuardEnabled,
                     onCheckedChange = {
                         prefs.setFpsGuardEnabled(it)
-                        refreshConfigState(prefs)
                     },
                 )
             }
@@ -576,7 +568,6 @@ fun HomeScreen(nav: NavHostController) {
                     raw.toIntOrNull()?.let { v ->
                         if (v in 30..240) {
                             prefs.setFpsGuardThreshold(v)
-                            refreshConfigState(prefs)
                         }
                     }
                 },
@@ -623,7 +614,6 @@ fun HomeScreen(nav: NavHostController) {
                     selected = state.pacingPreset == PacingPreset.SMOOTH,
                     onClick = {
                         prefs.setPacingPreset(PacingPreset.SMOOTH)
-                        refreshConfigState(prefs)
                     },
                     label = { Text(stringResource(R.string.preset_smooth)) },
                     modifier = Modifier.weight(1f),
@@ -632,7 +622,6 @@ fun HomeScreen(nav: NavHostController) {
                     selected = state.pacingPreset == PacingPreset.BALANCED,
                     onClick = {
                         prefs.setPacingPreset(PacingPreset.BALANCED)
-                        refreshConfigState(prefs)
                     },
                     label = { Text(stringResource(R.string.preset_balanced)) },
                     modifier = Modifier.weight(1f),
@@ -641,7 +630,6 @@ fun HomeScreen(nav: NavHostController) {
                     selected = state.pacingPreset == PacingPreset.LOW_LATENCY,
                     onClick = {
                         prefs.setPacingPreset(PacingPreset.LOW_LATENCY)
-                        refreshConfigState(prefs)
                     },
                     label = { Text(stringResource(R.string.preset_low_latency)) },
                     modifier = Modifier.weight(1f),

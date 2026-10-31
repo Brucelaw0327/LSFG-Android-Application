@@ -110,7 +110,6 @@ fun ParamsFrameGenPacingScreen(nav: NavHostController) {
                 checked = state.lsfgEnabled,
                 onCheckedChange = {
                     prefs.setLsfgEnabled(it)
-                    refreshConfigState(prefs)
                 },
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -126,7 +125,6 @@ fun ParamsFrameGenPacingScreen(nav: NavHostController) {
                 leadingIcon = Icons.Filled.Timeline,
                 onValueChange = {
                     prefs.setMultiplier(it.toInt().coerceIn(2, 8))
-                    refreshConfigState(prefs)
                 },
             )
 
@@ -140,7 +138,6 @@ fun ParamsFrameGenPacingScreen(nav: NavHostController) {
                 leadingIcon = Icons.AutoMirrored.Filled.ShowChart,
                 onValueChange = {
                     prefs.setFlowScale(it)
-                    refreshConfigState(prefs)
                 },
             )
 
@@ -153,7 +150,6 @@ fun ParamsFrameGenPacingScreen(nav: NavHostController) {
                 checked = state.performanceMode,
                 onCheckedChange = {
                     prefs.setPerformance(it)
-                    refreshConfigState(prefs)
                 },
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -164,7 +160,6 @@ fun ParamsFrameGenPacingScreen(nav: NavHostController) {
                 checked = state.antiArtifacts,
                 onCheckedChange = {
                     prefs.setAntiArtifacts(it)
-                    refreshConfigState(prefs)
                 },
             )
             if (fp16Available) {
@@ -176,7 +171,6 @@ fun ParamsFrameGenPacingScreen(nav: NavHostController) {
                     checked = state.framegenFp16,
                     onCheckedChange = {
                         prefs.setFramegenFp16(it)
-                        refreshConfigState(prefs)
                     },
                 )
             }
@@ -247,7 +241,6 @@ fun OverlayDisplayScreen(nav: NavHostController) {
                 selected = state.overlayMode,
                 onSelected = {
                     prefs.setOverlayMode(it)
-                    refreshConfigState(prefs)
                     // Live-update the Automatic Overlay launcher: if the dot is
                     // currently shown for a target app it is recreated with the
                     // new affordance, otherwise the change is picked up the next
@@ -265,7 +258,6 @@ fun OverlayDisplayScreen(nav: NavHostController) {
                 selected = state.drawerEdge,
                 onSelected = {
                     prefs.setDrawerEdge(it)
-                    refreshConfigState(prefs)
                 },
             )
         }
@@ -281,7 +273,6 @@ fun OverlayDisplayScreen(nav: NavHostController) {
                 checked = state.fpsCounterEnabled,
                 onCheckedChange = {
                     prefs.setFpsCounterEnabled(it)
-                    refreshConfigState(prefs)
                 },
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -292,7 +283,6 @@ fun OverlayDisplayScreen(nav: NavHostController) {
                 checked = state.frameGraphEnabled,
                 onCheckedChange = {
                     prefs.setFrameGraphEnabled(it)
-                    refreshConfigState(prefs)
                 },
             )
         }
@@ -308,7 +298,6 @@ fun OverlayDisplayScreen(nav: NavHostController) {
                 checked = state.trustedOverlay,
                 onCheckedChange = {
                     prefs.setTrustedOverlay(it)
-                    refreshConfigState(prefs)
                 },
             )
         }

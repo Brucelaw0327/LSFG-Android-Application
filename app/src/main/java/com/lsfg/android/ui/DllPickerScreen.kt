@@ -95,7 +95,6 @@ fun DllPickerScreen(nav: NavHostController) {
         }
         pickError = null
         prefs.setDll(uri.toString(), name)
-        refreshConfigState(prefs)
         pendingUri = uri
         extractionState = ExtractionState.Running
     }
@@ -107,12 +106,10 @@ fun DllPickerScreen(nav: NavHostController) {
             when (result) {
                 is ExtractResult.Success -> {
                     prefs.setShadersReady(true)
-                    refreshConfigState(prefs)
                     extractionState = ExtractionState.Done(success = true, message = null)
                 }
                 is ExtractResult.Failure -> {
                     prefs.setShadersReady(false)
-                    refreshConfigState(prefs)
                     extractionState = ExtractionState.Done(success = false, message = result.message)
                 }
             }
@@ -250,7 +247,6 @@ fun DllPickerScreen(nav: NavHostController) {
                 onClick = {
                     val uri = state.dllUri?.let(Uri::parse) ?: return@LsfgSecondaryButton
                     prefs.setShadersReady(false)
-                    refreshConfigState(prefs)
                     pendingUri = uri
                     extractionState = ExtractionState.Running
                 },

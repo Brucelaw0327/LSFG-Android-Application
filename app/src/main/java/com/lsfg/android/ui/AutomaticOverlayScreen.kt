@@ -362,7 +362,6 @@ fun AutomaticOverlayScreen(nav: NavHostController) {
                                 }
                                 val updated = enabled.toSet()
                                 prefs.setAutoEnabledApps(updated)
-                                refreshConfigState(prefs)
                                 AutoOverlayController.onAutoEnabledAppsChanged(ctx, updated)
                             },
                         )

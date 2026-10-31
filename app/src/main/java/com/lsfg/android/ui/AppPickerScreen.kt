@@ -196,7 +196,6 @@ fun AppPickerScreen(nav: NavHostController) {
                     itemsIndexed(filtered, key = { index, app -> "${app.packageName}#$index" }) { _, app ->
                         AppRow(app = app, onClick = {
                             prefs.setTargetPackage(app.packageName)
-                            refreshConfigState(prefs)
                             nav.popBackStack()
                         })
                     }
