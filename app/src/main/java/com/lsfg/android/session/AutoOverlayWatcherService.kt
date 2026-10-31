@@ -107,6 +107,10 @@ class AutoOverlayWatcherService : Service() {
 
     private fun pollOnce(force: Boolean = false): String? {
         val appCtx = applicationContext
+        // Self-heal: if the dot window is stuck at MATCH_PARENT while its panel
+        // is closed it eats every touch on the display. Repair before probing.
+        runCatching { AutoOverlayController.enforceDotCollapsed() }
+            .onFailure { LsfgLog.w(TAG, "dot collapse guard failed", it) }
         // A transient read failure (concurrent prefs rewrite, first-load race)
         // must NOT be misread as MediaProjection: skip this round and retry.
         val source = runCatching { LsfgPreferences(appCtx).load().captureSource }

@@ -171,22 +171,6 @@
     <string name="crash_export_none">暂无诊断日志——请先运行一次会话。</string>
 
     <!-- Benchmark mode -->
-    <string name="benchmark_title">基准测试</string>
-    <string name="benchmark_home_button">运行基准测试</string>
-    <string name="benchmark_intro">以固定预设连续运行三轮（倍率 ×2、×3、×4）并生成可分享的报告。在性能调整前后运行作为基准，用于对比差异。</string>
-    <string name="benchmark_preset_summary">光流缩放 0.70 · 性能模式 开 · 抗伪影 关 · 后处理 关 · 垂直同步 自动</string>
-    <string name="benchmark_duration_summary">每轮：60 秒采样 + 2 秒预热。总计约 3 分钟，另加目标应用启动时间。</string>
-    <string name="benchmark_dual_precision_summary">此 GPU 支持 FP16——基准测试将跑两遍（先 FP32 后 FP16），在同一报告中直接对比数据。</string>
-    <string name="benchmark_requires_target">请先选择目标应用（在“自动悬浮层”页面）。</string>
-    <string name="benchmark_start">开始基准测试</string>
-    <string name="benchmark_cancel">取消</string>
-    <string name="benchmark_share_report">分享上次报告</string>
-    <string name="benchmark_running_warmup">预热 ×%1$d — 剩余 %2$d 秒</string>
-    <string name="benchmark_running_sampling">第 %1$d/%2$d 轮 — 倍率 ×%3$d — 剩余 %4$d 秒</string>
-    <string name="benchmark_completed">基准测试完成</string>
-    <string name="benchmark_completed_body">报告已保存至 %1$s。使用分享面板发送。</string>
-    <string name="benchmark_failed">基准测试失败：%1$s</string>
-    <string name="benchmark_no_report">暂无报告——请先运行一次基准测试。</string>
     <string name="automatic_overlay_watcher_body">未开启无障碍：LSFG 正在后台通过 Shizuku/Root 探测前台应用，检测到所选应用打开时显示启动器图标。建议在最近任务中锁定 LSFG，防止后台服务被系统清理。</string>
     <string name="auto_overlay_watcher_notif">自动悬浮层待机中</string>
     <string name="auto_overlay_small_window_stop">目标应用已进入小窗，会话已自动结束</string>

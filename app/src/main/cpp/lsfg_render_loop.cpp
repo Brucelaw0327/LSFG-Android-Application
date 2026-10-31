@@ -3,10 +3,6 @@
 #include "android_vk_probe.hpp"
 #include "ahb_image_bridge.hpp"
 #include "android_shader_loader.hpp"
-#include "gpu_postprocess.hpp"
-#include "nnapi_npu.hpp"
-#include "nnapi_postprocess.hpp"
-#include "cpu_postprocess.hpp"
 
 #include "lsfg_3_1.hpp"
 #include "lsfg_3_1p.hpp"
@@ -155,30 +151,6 @@ struct State {
     std::atomic<bool> antiArtifacts{false};
     std::atomic<uint64_t> cacheHits{0};
     std::atomic<uint64_t> cacheMisses{0};
-    bool npuPostProcessing = false;
-    int npuPreset = 0;
-    int npuUpscaleFactor = 1;
-    float npuAmount = 0.5f;
-    float npuRadius = 1.0f;
-    float npuThreshold = 0.0f;
-    bool npuFp16 = true;
-    NnapiPostProcessor npuPost{};
-    bool cpuPostProcessing = false;
-    int cpuPreset = 0;
-    float cpuStrength = 0.5f;
-    float cpuSaturation = 0.5f;
-    float cpuVibrance = 0.0f;
-    float cpuVignette = 0.0f;
-    CpuPostProcessor cpuPost{};
-    bool gpuPostProcessing = false;
-    int gpuStage = 1;
-    int gpuMethod = 0;
-    float gpuUpscaleFactor = 1.0f;
-    float gpuSharpness = 0.5f;
-    float gpuStrength = 0.5f;
-    bool gpuNoopLogged = false;
-    AhbImage gpuPostImage{};
-    GpuPostProcessor gpuPost{};
     std::vector<AhbImage> outputs; // multiplier-many outputs
 
     // Output surface for the final blit. Owned (acquired from JNI).
@@ -339,48 +311,6 @@ float clamp01(float value) {
 
 float clampScale(float value) {
     return value < 1.0f ? 1.0f : (value > 2.0f ? 2.0f : value);
-}
-
-const char *gpuMethodName(int method) {
-    switch (method) {
-        case 0: return "FSR1_EASU_RCAS";
-        case 1: return "AMD_CAS";
-        case 2: return "NVIDIA_NIS";
-        case 3: return "LANCZOS";
-        case 4: return "BICUBIC";
-        case 5: return "BILINEAR";
-        case 6: return "CATMULL_ROM";
-        case 7: return "MITCHELL_NETRAVALI";
-        case 8: return "ANIME4K_ULTRAFAST";
-        case 9: return "ANIME4K_RESTORE";
-        case 10: return "XBRZ";
-        case 11: return "EDGE_DIRECTED";
-        case 12: return "UNSHARP_MASK";
-        case 13: return "LUMA_SHARPEN";
-        case 14: return "CONTRAST_ADAPTIVE";
-        case 15: return "DEBAND";
-        default: return "FSR1_EASU_RCAS";
-    }
-}
-
-const char *gpuStageName(int stage) {
-    return stage == 0 ? "before_lsfg" : "after_lsfg";
-}
-
-bool gpuWantsPreLsfg() {
-    return g.gpuPostProcessing && g.gpuStage == 0;
-}
-
-bool gpuWantsPostLsfg() {
-    return g.gpuPostProcessing && g.gpuStage != 0;
-}
-
-void noteGpuShaderPassPending() {
-    if (!g.gpuPostProcessing || g.gpuNoopLogged) return;
-    g.gpuNoopLogged = true;
-    LOGI("GPU method %s active stage=%s scale=%.2f sharp=%.2f strength=%.2f",
-         gpuMethodName(g.gpuMethod), gpuStageName(g.gpuStage),
-         g.gpuUpscaleFactor, g.gpuSharpness, g.gpuStrength);
 }
 
 // Compute a cheap FNV-1a hash of an 8×8 luma grid sampled from the AHB.
@@ -1327,41 +1257,7 @@ bool blitAhbImageGpu(const AhbImage &src, const AhbImage &dst) {
     return ok;
 }
 
-bool ensureGpuPostImage(uint32_t width, uint32_t height) {
-    if (g.gpuPostImage.ahb != nullptr &&
-            g.gpuPostImage.extent.width == width &&
-            g.gpuPostImage.extent.height == height) {
-        return true;
-    }
-    destroyAhbImage(g.vk, g.gpuPostImage);
-    const int rc = createAhbImage(g.vk, width, height, VK_FORMAT_R8G8B8A8_UNORM,
-                                  g.gpuPostImage);
-    if (rc != kOk) {
-        LOGW("GPU post-process intermediate allocation failed rc=%d size=%ux%u",
-             rc, width, height);
-        return false;
-    }
-    return true;
-}
-
 bool processRealFrameIntoSlot(const AhbImage &src, const AhbImage &dst) {
-    if (!gpuWantsPreLsfg()) {
-        return copyAhbImage(src, dst);
-    }
-    noteGpuShaderPassPending();
-    const GpuPostProcessConfig gpuCfg{
-        .method = g.gpuMethod,
-        .sharpness = g.gpuSharpness,
-        .strength = g.gpuStrength,
-    };
-    if (g.gpuPost.process(g.vk, src, dst, gpuCfg)) {
-        return true;
-    }
-    LOGW("GPU pre-LSFG processing failed; falling back to Vulkan linear blit");
-    if (blitAhbImageGpu(src, dst)) {
-        return true;
-    }
-    LOGW("GPU pre-LSFG fallback failed; falling back to raw copy");
     return copyAhbImage(src, dst);
 }
 
@@ -1558,25 +1454,6 @@ bool createFramegenContext() {
 void blitOutputToWindow(const AhbImage &out, bool allowGpuPost = true) {
     if (g.outWindow == nullptr || out.ahb == nullptr) return;
 
-    if (allowGpuPost && gpuWantsPostLsfg()) {
-        noteGpuShaderPassPending();
-        const uint32_t scaledW = std::max<uint32_t>(
-            1, static_cast<uint32_t>(std::lround(out.extent.width * g.gpuUpscaleFactor)));
-        const uint32_t scaledH = std::max<uint32_t>(
-            1, static_cast<uint32_t>(std::lround(out.extent.height * g.gpuUpscaleFactor)));
-        const GpuPostProcessConfig gpuCfg{
-            .method = g.gpuMethod,
-            .sharpness = g.gpuSharpness,
-            .strength = g.gpuStrength,
-        };
-        if (ensureGpuPostImage(scaledW, scaledH) &&
-                g.gpuPost.process(g.vk, out, g.gpuPostImage, gpuCfg)) {
-            blitOutputToWindow(g.gpuPostImage, false);
-            return;
-        }
-        LOGW("GPU post-process failed; falling back to direct overlay blit");
-    }
-
     // WSI fast path: skip the CPU lock/memcpy entirely. Only viable when no
     // CPU-side post-process is active (NPU or CPU filters need to read and
     // mutate pixels through ANativeWindow_lock, which can't coexist with a
@@ -1586,8 +1463,7 @@ void blitOutputToWindow(const AhbImage &out, bool allowGpuPost = true) {
     // overlay's Surface is still owned by the mirror VirtualDisplay, but by
     // the time blitOutputToWindow runs the VD has been retargeted to the
     // ImageReader by setLsfgMode and the Surface is free.
-    const bool cpuPostActive = g.npuPostProcessing || g.cpuPostProcessing;
-    if (kEnableWsiSwapchain && !cpuPostActive && g.vk.hasSwapchain
+    if (kEnableWsiSwapchain && g.vk.hasSwapchain
             && !g.swap.disabledForSession) {
         std::lock_guard<std::mutex> lock(g.mu);
         if (g.swap.swapchain == VK_NULL_HANDLE) {
@@ -1616,11 +1492,8 @@ void blitOutputToWindow(const AhbImage &out, bool allowGpuPost = true) {
     // JNISurfaceTextu thread, 2026-09-07 18:13).
     std::lock_guard<std::mutex> cpuBlitLock(g.mu);
     if (g.outWindow == nullptr) return;  // detached between entry check and lock
-    const uint32_t npuScale = g.npuPostProcessing && g.npuUpscaleFactor == 2
-        ? 2U
-        : 1U;
-    const uint32_t targetW = out.extent.width * npuScale;
-    const uint32_t targetH = out.extent.height * npuScale;
+    const uint32_t targetW = out.extent.width;
+    const uint32_t targetH = out.extent.height;
     // Only call setBuffersGeometry when parameters actually change.  On some
     // drivers (MediaTek, certain Mali) calling it on every blit triggers a
     // SurfaceTexture buffer-queue reconfiguration even when nothing changed,
@@ -1743,69 +1616,13 @@ void blitOutputToWindow(const AhbImage &out, bool allowGpuPost = true) {
 
     auto *src = static_cast<const uint8_t *>(srcPtr);
     auto *dest = static_cast<uint8_t *>(dst.bits);
-    if (gpuWantsPostLsfg()) {
-        noteGpuShaderPassPending();
-    }
-    bool npuPosted = false;
-    uint32_t producedW = desc.width;
-    uint32_t producedH = desc.height;
-    if (g.npuPostProcessing) {
-        const NnapiPostProcessConfig postCfg{
-            .preset = static_cast<NpuPreset>(g.npuPreset),
-            .upscaleFactor = g.npuUpscaleFactor,
-            .amount = g.npuAmount,
-            .radius = g.npuRadius,
-            .threshold = g.npuThreshold,
-            .fp16 = g.npuFp16,
-        };
-        // configure() returns true only when a graph is compiled on a
-        // dedicated NPU. If it returns false we treat this frame as no-op
-        // for the NPU stage — but we don't disable the whole category
-        // unless processRgba8888 actually fails.
-        if (g.npuPost.configure(desc.width, desc.height, postCfg) &&
-                g.npuPost.outputWidth() <= static_cast<uint32_t>(dst.width) &&
-                g.npuPost.outputHeight() <= static_cast<uint32_t>(dst.height)) {
-            npuPosted = g.npuPost.processRgba8888(src, srcStrideBytes, dest, dstStrideBytes);
-            if (npuPosted) {
-                producedW = g.npuPost.outputWidth();
-                producedH = g.npuPost.outputHeight();
-            }
-        }
-        if (!npuPosted && static_cast<NpuPreset>(g.npuPreset) != NpuPreset::OFF) {
-            LOGW("NPU post-process failed; disabling NPU category for this session");
-            g.npuPostProcessing = false;
-            g.npuPost.reset();
-        }
-    }
-
-    if (!npuPosted) {
-        const uint32_t copyW = std::min<uint32_t>(desc.width, static_cast<uint32_t>(dst.width));
-        const uint32_t copyH = std::min<uint32_t>(desc.height, static_cast<uint32_t>(dst.height));
-        for (uint32_t y = 0; y < copyH; ++y) {
-            const uint32_t *sRow = reinterpret_cast<const uint32_t *>(src + y * srcStrideBytes);
-                  uint32_t *dRow = reinterpret_cast<      uint32_t *>(dest + y * dstStrideBytes);
-            for (uint32_t x = 0; x < copyW; ++x) {
-                dRow[x] = sRow[x] | 0xFF000000u;
-            }
-        }
-        producedW = copyW;
-        producedH = copyH;
-    }
-
-    // CPU post-process runs on the destination in-place. Scoped to the
-    // region we've actually written so we never read past the blit area.
-    if (g.cpuPostProcessing) {
-        const CpuPostProcessConfig cpuCfg{
-            .preset = static_cast<CpuPreset>(g.cpuPreset),
-            .strength = g.cpuStrength,
-            .saturation = g.cpuSaturation,
-            .vibrance = g.cpuVibrance,
-            .vignette = g.cpuVignette,
-        };
-        const bool active = g.cpuPost.configure(producedW, producedH, cpuCfg);
-        if (active) {
-            g.cpuPost.process(dest, dstStrideBytes, dest, dstStrideBytes,
-                              producedW, producedH);
+    const uint32_t copyW = std::min<uint32_t>(desc.width, static_cast<uint32_t>(dst.width));
+    const uint32_t copyH = std::min<uint32_t>(desc.height, static_cast<uint32_t>(dst.height));
+    for (uint32_t y = 0; y < copyH; ++y) {
+        const uint32_t *sRow = reinterpret_cast<const uint32_t *>(src + y * srcStrideBytes);
+              uint32_t *dRow = reinterpret_cast<      uint32_t *>(dest + y * dstStrideBytes);
+        for (uint32_t x = 0; x < copyW; ++x) {
+            dRow[x] = sRow[x] | 0xFF000000u;
         }
     }
 
@@ -2340,53 +2157,6 @@ int initRenderLoop(const char *cacheDir, const RenderLoopConfig &cfg) {
     g.framegenFp16 = cfg.framegenFp16;
     g.hdr = cfg.hdr;
     g.antiArtifacts.store(cfg.antiArtifacts, std::memory_order_relaxed);
-    const bool requestedNpu = cfg.npuPostProcessing;
-    g.npuPreset = cfg.npuPreset < 0 ? 0 : (cfg.npuPreset > 4 ? 0 : cfg.npuPreset);
-    g.npuUpscaleFactor = cfg.npuUpscaleFactor == 2 ? 2 : 1;
-    g.npuAmount = clamp01(cfg.npuAmount);
-    g.npuRadius = cfg.npuRadius < 0.5f ? 0.5f : (cfg.npuRadius > 2.0f ? 2.0f : cfg.npuRadius);
-    g.npuThreshold = clamp01(cfg.npuThreshold);
-    g.npuFp16 = cfg.npuFp16;
-    // Default: if the user toggled the NPU category on but left the preset at
-    // "Off", fall back to SHARPEN so something visible happens. Without this
-    // the UI silently had no effect until the user scrolled down and picked a
-    // preset, which read as "toggle does nothing".
-    if (requestedNpu && g.npuPreset == 0 && g.npuUpscaleFactor != 2) {
-        g.npuPreset = 1; // SHARPEN
-    }
-    const bool npuWantsWork = g.npuPreset != 0 || g.npuUpscaleFactor == 2;
-    const bool npuAvailable = requestedNpu && npuWantsWork &&
-        !nnapi_npu_accelerator_devices().empty();
-    g.npuPostProcessing = npuAvailable;
-    g.cpuPostProcessing = cfg.cpuPostProcessing;
-    g.cpuPreset = cfg.cpuPreset < 0 ? 0 : (cfg.cpuPreset > 6 ? 0 : cfg.cpuPreset);
-    g.cpuStrength = clamp01(cfg.cpuStrength);
-    g.cpuSaturation = clamp01(cfg.cpuSaturation);
-    g.cpuVibrance = clamp01(cfg.cpuVibrance);
-    g.cpuVignette = clamp01(cfg.cpuVignette);
-    g.gpuPostProcessing = cfg.gpuPostProcessing;
-    g.gpuStage = cfg.gpuStage == 0 ? 0 : 1;
-    g.gpuMethod = cfg.gpuMethod < 0 ? 0 : (cfg.gpuMethod > 15 ? 0 : cfg.gpuMethod);
-    g.gpuUpscaleFactor = clampScale(cfg.gpuUpscaleFactor);
-    g.gpuSharpness = clamp01(cfg.gpuSharpness);
-    g.gpuStrength = clamp01(cfg.gpuStrength);
-    g.gpuNoopLogged = false;
-    if (g.gpuPostProcessing) {
-        LOGI("GPU post-processing configured: method=%s stage=%s scale=%.2f sharp=%.2f strength=%.2f",
-             gpuMethodName(g.gpuMethod), gpuStageName(g.gpuStage),
-             g.gpuUpscaleFactor, g.gpuSharpness, g.gpuStrength);
-    }
-    if (requestedNpu && !npuAvailable) {
-        LOGW("NPU post-processing requested but no dedicated NNAPI accelerator is available. NPU category disabled.");
-    } else if (npuAvailable) {
-        LOGI("NPU post-processing enabled: preset=%d upscale=%dx amount=%.2f radius=%.2f fp16=%d devices=%s",
-             g.npuPreset, g.npuUpscaleFactor, g.npuAmount, g.npuRadius, (int)g.npuFp16,
-             nnapi_npu_summary().c_str());
-    }
-    if (g.cpuPostProcessing) {
-        LOGI("CPU post-processing enabled: preset=%d strength=%.2f sat=%.2f vibrance=%.2f vignette=%.2f",
-             g.cpuPreset, g.cpuStrength, g.cpuSaturation, g.cpuVibrance, g.cpuVignette);
-    }
     // flowScale on the prefs slider is "0.25..1.0" in user-friendly form, but
     // framegen wants the reciprocal (Linux passes 1.0f / conf.flowScale at
     // src/context.cpp:101). Larger user value = finer flow grid = better quality.
@@ -2438,16 +2208,8 @@ int initRenderLoop(const char *cacheDir, const RenderLoopConfig &cfg) {
         return kRenderLoopSessionFailed;
     }
 
-    const uint32_t renderW = gpuWantsPreLsfg()
-        ? std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(cfg.width * g.gpuUpscaleFactor)))
-        : cfg.width;
-    const uint32_t renderH = gpuWantsPreLsfg()
-        ? std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(cfg.height * g.gpuUpscaleFactor)))
-        : cfg.height;
-    if (gpuWantsPreLsfg()) {
-        LOGI("GPU pre-LSFG active: capture=%ux%u render=%ux%u method=%s",
-             cfg.width, cfg.height, renderW, renderH, gpuMethodName(g.gpuMethod));
-    }
+    const uint32_t renderW = cfg.width;
+    const uint32_t renderH = cfg.height;
 
     const VkFormat fmt = VK_FORMAT_R8G8B8A8_UNORM;
     for (int i = 0; i < 2; ++i) {
@@ -2493,11 +2255,10 @@ int initRenderLoop(const char *cacheDir, const RenderLoopConfig &cfg) {
     // ImageReader). Creating the swapchain before that point races against
     // ANativeWindow's single-producer rule. The first blitOutputToWindow
     // call after LSFG mode is live builds it lazily.
-    LOGW("Render loop initialised: capture=%ux%u render=%ux%u totalMult=%dx (gen=%d extra) flowScale=%.2f(internal=%.2f) hdr=%d perf=%d npu=%d cpu=%d gpu=%d ctxId=%d",
+    LOGW("Render loop initialised: capture=%ux%u render=%ux%u totalMult=%dx (gen=%d extra) flowScale=%.2f(internal=%.2f) hdr=%d perf=%d ctxId=%d",
          cfg.width, cfg.height, renderW, renderH, totalMult, g.multiplier,
          userFlow, g.flowScale,
-         (int)g.hdr, (int)g.performanceMode, (int)g.npuPostProcessing,
-         (int)g.cpuPostProcessing, (int)g.gpuPostProcessing, g.framegenCtxId);
+         (int)g.hdr, (int)g.performanceMode, g.framegenCtxId);
     // Tell the caller whether framegen is actually running. If not, Kotlin
     // will keep the overlay up in mirror mode instead of routing the capture
     // through a dead LSFG context.
@@ -2526,13 +2287,7 @@ void setOutputSurface(ANativeWindow *win, uint32_t w, uint32_t h) {
         // Reset the taint so a new window can take the WSI fast path even if
         // a previous one was poisoned for CPU.
         g.windowCpuProducerLocked = false;
-        // WSI swapchain is only useful when no CPU-side post-process is
-        // running. If NPU or CPU filters are on, they need to read/write the
-        // pixels on CPU and the CPU blit path handles that; switching to the
-        // swapchain would break them because ANativeWindow_lock can't be
-        // mixed with Vulkan-side presents on the same surface.
-        const bool cpuPostActive = g.npuPostProcessing || g.cpuPostProcessing;
-        if (kEnableWsiSwapchain && !cpuPostActive && g.initialized) {
+        if (kEnableWsiSwapchain && g.initialized) {
             if (createSwapchain()) {
                 LOGW("Output surface attached %ux%u native=%p path=WSI", w, h, static_cast<void *>(win));
             } else {
@@ -2540,7 +2295,6 @@ void setOutputSurface(ANativeWindow *win, uint32_t w, uint32_t h) {
             }
         } else {
             const char *why = !kEnableWsiSwapchain ? "WSI disabled"
-                            : cpuPostActive         ? "post-process=on"
                             : !g.initialized        ? "pre-init"
                                                     : "unknown";
             LOGW("Output surface attached %ux%u native=%p path=CPU (%s)",
@@ -2658,14 +2412,10 @@ void shutdownRenderLoop() {
 
         for (auto &o : g.outputs) destroyAhbImage(g.vk, o);
         g.outputs.clear();
-        g.gpuPost.reset(g.vk);
-        destroyAhbImage(g.vk, g.gpuPostImage);
         for (int i = 0; i < 2; ++i) destroyAhbImage(g.vk, g.inSlot[i]);
 
 
 
-        g.npuPost.reset();
-        g.cpuPost.reset();
 
         // Destroy swapchain (and its surface) before the underlying ANativeWindow
         // is touched — surface destruction drops its internal window ref.

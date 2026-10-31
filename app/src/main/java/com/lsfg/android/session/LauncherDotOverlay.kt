@@ -99,6 +99,24 @@ class LauncherDotOverlay(
     private var settleAnimator: ValueAnimator? = null
     private var pulseAnimator: ValueAnimator? = null
 
+    /**
+     * Safety net for the "whole screen stops responding" failure: the panel is
+     * hosted in a window that is resized to MATCH_PARENT while it is open, and
+     * a full-screen TYPE_APPLICATION_OVERLAY that stays that way while nothing
+     * is visible swallows every touch on the display (only StatusBar and
+     * NavigationBar stay reachable — exactly "only the top edge and the bottom
+     * edge still work"). The resize back to the collapsed size used to happen
+     * only in ValueAnimator.doOnEnd, which never fires when the animator is
+     * cancelled by a new gesture or by hide(). This runnable verifies the
+     * invariant a moment later and repairs it if needed.
+     */
+    private val idleCollapseGuard = Runnable {
+        if (progress == 0f && !expanded) {
+            panelContainer?.visibility = View.GONE
+            collapseWindowIfNeeded()
+        }
+    }
+
     // ICON_BUTTON mode state — mirrors SettingsDrawerOverlay.
     private var iconButton: View? = null
     private var iconSizePx: Int = 0
@@ -233,10 +251,26 @@ class LauncherDotOverlay(
         return attached
     }
 
+    /**
+     * External watchdog entry point (called from the foreground watcher poll).
+     * If the panel is closed but the window is still expanded to full screen,
+     * shrink it — otherwise it silently swallows every touch in the middle of
+     * the display while looking perfectly idle.
+     */
+    fun forceCollapseIfIdle() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            root?.post { forceCollapseIfIdle() }
+            return
+        }
+        if (progress > 0f || expanded) return
+        idleCollapseGuard.run()
+    }
+
     fun hide() {
         val r = root ?: return
         val wm = hostWm
         unregisterDisplayListener()
+        r.removeCallbacks(idleCollapseGuard)
         settleAnimator?.cancel()
         settleAnimator = null
         pulseAnimator?.cancel()
@@ -413,6 +447,16 @@ class LauncherDotOverlay(
     private fun setProgress(p: Float) {
         val wasZero = progress == 0f
         progress = p
+        val r = root
+        if (p == 0f) {
+            // Collapse asynchronously: the slide-out animation still needs the
+            // full-screen window until the panel has left the screen, but the
+            // window must not be left expanded if that animation is cancelled.
+            r?.removeCallbacks(idleCollapseGuard)
+            r?.postDelayed(idleCollapseGuard, 320L)
+        } else {
+            r?.removeCallbacks(idleCollapseGuard)
+        }
         // Self-heal: the panel must never be visible inside a collapsed
         // window (it would render clipped = "panel not fully shown").
         // expandWindow() no-ops once the window is already MATCH_PARENT.
@@ -456,6 +500,11 @@ class LauncherDotOverlay(
         anim.start()
         if (target == 0f) {
             anim.doOnEnd {
+                if (progress == 0f) collapseWindowIfNeeded()
+            }
+            // A cancelled animator never reaches doOnEnd — without this the
+            // window stays MATCH_PARENT and eats the whole display.
+            anim.doOnCancel {
                 if (progress == 0f) collapseWindowIfNeeded()
             }
         }
@@ -653,6 +702,14 @@ class LauncherDotOverlay(
     private inline fun android.animation.Animator.doOnEnd(crossinline action: () -> Unit) {
         addListener(object : android.animation.AnimatorListenerAdapter() {
             override fun onAnimationEnd(animation: android.animation.Animator) {
+                action()
+            }
+        })
+    }
+
+    private inline fun android.animation.Animator.doOnCancel(crossinline action: () -> Unit) {
+        addListener(object : android.animation.AnimatorListenerAdapter() {
+            override fun onAnimationCancel(animation: android.animation.Animator) {
                 action()
             }
         })

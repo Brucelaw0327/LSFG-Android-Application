@@ -25,7 +25,6 @@ import androidx.compose.material.icons.automirrored.filled.ViewSidebar
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.HdrOn
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Speed
@@ -54,12 +53,8 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.lsfg.android.R
 import com.lsfg.android.prefs.CaptureSource
-import com.lsfg.android.prefs.CpuPostProcessingPreset
 import com.lsfg.android.prefs.DrawerEdge
-import com.lsfg.android.prefs.GpuPostProcessingMethod
-import com.lsfg.android.prefs.GpuPostProcessingStage
 import com.lsfg.android.prefs.LsfgPreferences
-import com.lsfg.android.prefs.NpuPostProcessingPreset
 import com.lsfg.android.prefs.OverlayMode
 import com.lsfg.android.session.AutoOverlayController
 import com.lsfg.android.session.NativeBridge
@@ -390,201 +385,7 @@ private fun SubSectionHeader(text: String) {
 // Selectors shared across screens
 // ----------------------------------------------------------------------------------------
 
-@Composable
-private fun GpuStageSelector(
-    selected: GpuPostProcessingStage,
-    onSelected: (GpuPostProcessingStage) -> Unit,
-) {
-    val options = listOf(
-        GpuPostProcessingStage.BEFORE_LSFG to stringResource(R.string.gpu_stage_before_lsfg),
-        GpuPostProcessingStage.AFTER_LSFG to stringResource(R.string.gpu_stage_after_lsfg),
-    )
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 10.dp, horizontal = 4.dp),
-    ) {
-        Text(
-            text = stringResource(R.string.param_gpu_stage),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            options.forEach { (stage, label) ->
-                FilterChip(
-                    selected = selected == stage,
-                    onClick = { onSelected(stage) },
-                    label = { Text(label) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
-}
-
 private enum class GpuMethodCategory { SCALING, ENHANCEMENT, SHARPEN_COLOR }
-
-@Composable
-private fun GpuMethodSelector(
-    category: GpuMethodCategory,
-    selected: GpuPostProcessingMethod,
-    onSelected: (GpuPostProcessingMethod) -> Unit,
-) {
-    val options = when (category) {
-        GpuMethodCategory.SCALING -> listOf(
-            GpuPostProcessingMethod.FSR1_EASU_RCAS to stringResource(R.string.gpu_method_fsr1),
-            GpuPostProcessingMethod.NVIDIA_NIS to stringResource(R.string.gpu_method_nis),
-            GpuPostProcessingMethod.LANCZOS to stringResource(R.string.gpu_method_lanczos),
-            GpuPostProcessingMethod.BICUBIC to stringResource(R.string.gpu_method_bicubic),
-            GpuPostProcessingMethod.BILINEAR to stringResource(R.string.gpu_method_bilinear),
-            GpuPostProcessingMethod.CATMULL_ROM to stringResource(R.string.gpu_method_catmull),
-            GpuPostProcessingMethod.MITCHELL_NETRAVALI to stringResource(R.string.gpu_method_mitchell),
-        )
-        GpuMethodCategory.ENHANCEMENT -> listOf(
-            GpuPostProcessingMethod.ANIME4K_ULTRAFAST to stringResource(R.string.gpu_method_anime4k_fast),
-            GpuPostProcessingMethod.ANIME4K_RESTORE to stringResource(R.string.gpu_method_anime4k_restore),
-            GpuPostProcessingMethod.XBRZ to stringResource(R.string.gpu_method_xbrz),
-            GpuPostProcessingMethod.EDGE_DIRECTED to stringResource(R.string.gpu_method_edge_directed),
-        )
-        GpuMethodCategory.SHARPEN_COLOR -> listOf(
-            GpuPostProcessingMethod.AMD_CAS to stringResource(R.string.gpu_method_cas),
-            GpuPostProcessingMethod.UNSHARP_MASK to stringResource(R.string.gpu_method_unsharp),
-            GpuPostProcessingMethod.LUMA_SHARPEN to stringResource(R.string.gpu_method_luma),
-            GpuPostProcessingMethod.CONTRAST_ADAPTIVE to stringResource(R.string.gpu_method_contrast),
-            GpuPostProcessingMethod.DEBAND to stringResource(R.string.gpu_method_deband),
-        )
-    }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp, horizontal = 4.dp),
-    ) {
-        options.chunked(2).forEachIndexed { index, rowOptions ->
-            if (index > 0) Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                rowOptions.forEach { (method, label) ->
-                    FilterChip(
-                        selected = selected == method,
-                        onClick = { onSelected(method) },
-                        label = { Text(label) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                if (rowOptions.size == 1) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun NpuPresetSelector(
-    selected: NpuPostProcessingPreset,
-    onSelected: (NpuPostProcessingPreset) -> Unit,
-) {
-    val options = listOf(
-        NpuPostProcessingPreset.OFF to stringResource(R.string.npu_preset_off),
-        NpuPostProcessingPreset.SHARPEN to stringResource(R.string.npu_preset_sharpen),
-        NpuPostProcessingPreset.DETAIL_BOOST to stringResource(R.string.npu_preset_detail_boost),
-        NpuPostProcessingPreset.CHROMA_CLEAN to stringResource(R.string.npu_preset_chroma_clean),
-        NpuPostProcessingPreset.GAME_CRISP to stringResource(R.string.npu_preset_game_crisp),
-    )
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 10.dp, horizontal = 4.dp),
-    ) {
-        Text(
-            text = stringResource(R.string.param_npu_preset),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            options.take(3).forEach { (preset, label) ->
-                FilterChip(
-                    selected = selected == preset,
-                    onClick = { onSelected(preset) },
-                    label = { Text(label) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            options.drop(3).forEach { (preset, label) ->
-                FilterChip(
-                    selected = selected == preset,
-                    onClick = { onSelected(preset) },
-                    label = { Text(label) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun CpuPresetSelector(
-    selected: CpuPostProcessingPreset,
-    onSelected: (CpuPostProcessingPreset) -> Unit,
-) {
-    val options = listOf(
-        CpuPostProcessingPreset.OFF to stringResource(R.string.cpu_preset_off),
-        CpuPostProcessingPreset.ENHANCE_LUT to stringResource(R.string.cpu_preset_enhance_lut),
-        CpuPostProcessingPreset.WARM to stringResource(R.string.cpu_preset_warm),
-        CpuPostProcessingPreset.COOL to stringResource(R.string.cpu_preset_cool),
-        CpuPostProcessingPreset.VIGNETTE to stringResource(R.string.cpu_preset_vignette),
-        CpuPostProcessingPreset.GAMER_SHARP to stringResource(R.string.cpu_preset_gamer_sharp),
-        CpuPostProcessingPreset.CINEMATIC to stringResource(R.string.cpu_preset_cinematic),
-    )
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 10.dp, horizontal = 4.dp),
-    ) {
-        Text(
-            text = stringResource(R.string.param_cpu_preset),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            options.take(3).forEach { (preset, label) ->
-                FilterChip(
-                    selected = selected == preset,
-                    onClick = { onSelected(preset) },
-                    label = { Text(label) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            options.drop(3).take(3).forEach { (preset, label) ->
-                FilterChip(
-                    selected = selected == preset,
-                    onClick = { onSelected(preset) },
-                    label = { Text(label) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            options.drop(6).forEach { (preset, label) ->
-                FilterChip(
-                    selected = selected == preset,
-                    onClick = { onSelected(preset) },
-                    label = { Text(label) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun OverlayModeSelector(

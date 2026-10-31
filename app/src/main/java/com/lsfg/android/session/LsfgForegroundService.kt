@@ -27,8 +27,6 @@ import android.view.Display
 import android.view.Surface
 import androidx.core.app.NotificationCompat
 import com.lsfg.android.R
-import com.lsfg.android.benchmark.BenchmarkController
-import com.lsfg.android.benchmark.BenchmarkLogWriter
 import com.lsfg.android.prefs.CaptureSource
 import com.lsfg.android.prefs.LsfgPreferences
 import com.lsfg.android.prefs.PacingDefaults
@@ -125,14 +123,6 @@ class LsfgForegroundService : Service() {
     private var shuttingDown: Boolean = false
     @Volatile
     private var pendingFpsCounter: Boolean = false
-    @Volatile
-    private var benchmarkRequested: Boolean = false
-    @Volatile
-    private var benchmarkStarted: Boolean = false
-    /** Polls [BenchmarkController.currentState] to feed the in-overlay
-     *  progress panel. Started in [maybeStartBenchmark]; cancelled when
-     *  the controller reaches Completed/Failed or the service tears down. */
-    private var benchmarkProgressPoller: Runnable? = null
     private var pendingPrivilegedVideoStart: ShizukuVideoStart? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     // Display rotation listener — Service.onConfigurationChanged only fires
@@ -242,7 +232,6 @@ class LsfgForegroundService : Service() {
         if (rotationRestartArmed) return
         val src = activeCaptureSource
         if (src != CaptureSource.SHIZUKU && src != CaptureSource.ROOT) return
-        if (benchmarkRequested) return
         if (overlayHiddenForBackground) {
             // Target is not in the foreground: the overlay is parked
             // off-screen, so rebuilding capture now is pointless and would
@@ -876,7 +865,6 @@ class LsfgForegroundService : Service() {
         cancelSourceFpsGuard()
         cancelOutputWatchdog()
         cancelHdrGuard()
-        stopBenchmarkProgressPoller()
         // Wait on the latch instead of polling — frees the Main thread looper
         // to deliver pending input events instead of sleeping in 20 ms ticks.
         val latch = reinitDoneLatch
@@ -947,8 +935,7 @@ class LsfgForegroundService : Service() {
             shizukuCapture != null || rootCapture != null) {
             LsfgLog.i(TAG, "handleStart: previous session still active — tearing it down first")
             stopTargetAlivePoller()
-            stopBenchmarkProgressPoller()
-            capture?.stop()
+                capture?.stop()
             capture = null
             shizukuCapture?.stop()
             shizukuCapture = null
@@ -993,8 +980,6 @@ class LsfgForegroundService : Service() {
         activeFpsCounter = initialFpsCounter
         lastKnownRotation = currentRotation() ?: -1
         rotationRestartDeferred = false
-        benchmarkRequested = intent.getBooleanExtra(EXTRA_BENCHMARK_REQUESTED, false)
-        benchmarkStarted = false
         if (usesMediaProjectionVideo && (data == null || resultCode == 0)) {
             LsfgLog.e(TAG, "Missing MediaProjection result intent; stopping")
             stopSelf()
@@ -1170,25 +1155,6 @@ class LsfgForegroundService : Service() {
                         hdr = false,
                         antiArtifacts = cfg.antiArtifacts,
                         framegenFp16 = cfg.framegenFp16,
-                        npuPostProcessing = cfg.npuPostProcessingEnabled,
-                        npuPreset = cfg.npuPostProcessingPreset.nativeValue,
-                        npuUpscaleFactor = cfg.npuUpscaleFactor,
-                        npuAmount = cfg.npuAmount,
-                        npuRadius = cfg.npuRadius,
-                        npuThreshold = cfg.npuThreshold,
-                        npuFp16 = cfg.npuFp16,
-                        cpuPostProcessing = cfg.cpuPostProcessingEnabled,
-                        cpuPreset = cfg.cpuPostProcessingPreset.nativeValue,
-                        cpuStrength = cfg.cpuStrength,
-                        cpuSaturation = cfg.cpuSaturation,
-                        cpuVibrance = cfg.cpuVibrance,
-                        cpuVignette = cfg.cpuVignette,
-                        gpuPostProcessing = cfg.gpuPostProcessingEnabled,
-                        gpuStage = cfg.gpuPostProcessingStage.nativeValue,
-                        gpuMethod = cfg.gpuPostProcessingMethod.nativeValue,
-                        gpuUpscaleFactor = cfg.gpuUpscaleFactor,
-                        gpuSharpness = cfg.gpuSharpness,
-                        gpuStrength = cfg.gpuStrength,
                         targetFpsCap = cfg.targetFpsCap,
                         emaAlpha = pacing.emaAlpha,
                         outlierRatio = pacing.outlierRatio,
@@ -1228,11 +1194,6 @@ class LsfgForegroundService : Service() {
                         startSourceFpsGuard()
                         startOutputWatchdog()
                         startHdrGuard()
-                        // If the user launched this session via the Benchmark
-                        // screen, hand control to BenchmarkController now that
-                        // framegen has reached steady state. The controller runs
-                        // on its own thread; we resume normal service handling.
-                        maybeStartBenchmark()
                     }
                     rc > 0 -> {
                         LsfgLog.w(TAG, "initContext rc=$rc — framegen disabled, staying in mirror mode")
@@ -1361,19 +1322,11 @@ class LsfgForegroundService : Service() {
         // PowerVR the system revokes MediaProjection if a second VirtualDisplay
         // is created while the first token is still unconsumed.
         //
-        // When a benchmark session is starting we force the FPS counter ON
-        // regardless of the user's last toggle state — the run is meaningless
-        // without the live real/total readout, and the in-overlay benchmark
-        // progress panel (shown below) is also revealed.
-        val effectiveFpsCounter = initialFpsCounter || benchmarkRequested
+        val effectiveFpsCounter = initialFpsCounter
         if (effectiveFpsCounter) {
             ov.setFpsVisible(true)
         }
         pendingFpsCounter = effectiveFpsCounter
-        if (benchmarkRequested) {
-            ov.setBenchmarkProgressVisible(true)
-            ov.updateBenchmarkProgress("Benchmark — preparing", 0L, 1L)
-        }
 
         // Frame pacing graph is purely a diagnostic overlay — no intent extra needed,
         // read the persisted pref directly so it restores across service restarts.
@@ -1544,25 +1497,6 @@ class LsfgForegroundService : Service() {
                         hdr = false,
                         antiArtifacts = cfg.antiArtifacts,
                         framegenFp16 = cfg.framegenFp16,
-                        npuPostProcessing = cfg.npuPostProcessingEnabled,
-                        npuPreset = cfg.npuPostProcessingPreset.nativeValue,
-                        npuUpscaleFactor = cfg.npuUpscaleFactor,
-                        npuAmount = cfg.npuAmount,
-                        npuRadius = cfg.npuRadius,
-                        npuThreshold = cfg.npuThreshold,
-                        npuFp16 = cfg.npuFp16,
-                        cpuPostProcessing = cfg.cpuPostProcessingEnabled,
-                        cpuPreset = cfg.cpuPostProcessingPreset.nativeValue,
-                        cpuStrength = cfg.cpuStrength,
-                        cpuSaturation = cfg.cpuSaturation,
-                        cpuVibrance = cfg.cpuVibrance,
-                        cpuVignette = cfg.cpuVignette,
-                        gpuPostProcessing = cfg.gpuPostProcessingEnabled,
-                        gpuStage = cfg.gpuPostProcessingStage.nativeValue,
-                        gpuMethod = cfg.gpuPostProcessingMethod.nativeValue,
-                        gpuUpscaleFactor = cfg.gpuUpscaleFactor,
-                        gpuSharpness = cfg.gpuSharpness,
-                        gpuStrength = cfg.gpuStrength,
                         targetFpsCap = cfg.targetFpsCap,
                         emaAlpha = pacing.emaAlpha,
                         outlierRatio = pacing.outlierRatio,
@@ -1635,130 +1569,6 @@ class LsfgForegroundService : Service() {
                 doneLatch.countDown()
             }
         }.start()
-    }
-
-    /**
-     * Kicks the [BenchmarkController] off if this session was started with
-     * EXTRA_BENCHMARK_REQUESTED. Idempotent — flips [benchmarkStarted] so
-     * subsequent reinit completions don't re-trigger the controller.
-     */
-    private fun maybeStartBenchmark() {
-        if (!benchmarkRequested || benchmarkStarted) return
-        if (shuttingDown) return
-        benchmarkStarted = true
-        LsfgLog.i(TAG, "starting BenchmarkController")
-        startBenchmarkProgressPoller()
-        BenchmarkController.start(applicationContext, object : BenchmarkController.Hooks {
-            override fun requestReinit() {
-                // Mirror the live-drawer code path so the controller doesn't
-                // need to know about reinit internals.
-                mainHandler.post { reinitLsfgContext() }
-            }
-            override fun activeRenderWidth(): Int = activeRenderW
-            override fun activeRenderHeight(): Int = activeRenderH
-            override fun targetPackage(): String? =
-                LsfgPreferences(this@LsfgForegroundService).load().targetPackage
-            override fun vsyncPeriodNs(): Long {
-                val hz = runCatching {
-                    val wm = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
-                    @Suppress("DEPRECATION")
-                    wm.defaultDisplay.refreshRate
-                }.getOrNull() ?: return 0L
-                if (hz <= 0f) return 0L
-                return (1_000_000_000.0 / hz).toLong()
-            }
-            override fun onCompleted(state: BenchmarkController.State.Completed) {
-                LsfgLog.i(TAG, "benchmark completed — report=${state.reportFile.absolutePath}")
-                // Stash the report file for the UI to pick up.
-                lastBenchmarkReport = state.reportFile
-                mainHandler.post {
-                    stopBenchmarkProgressPoller()
-                    overlay?.setBenchmarkProgressVisible(false)
-                    runCatching {
-                        val intent = BenchmarkLogWriter.buildShareIntent(
-                            this@LsfgForegroundService, state.reportFile,
-                        )
-                        val chooser = Intent.createChooser(
-                            intent, "Share LSFG benchmark report",
-                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        startActivity(chooser)
-                    }.onFailure {
-                        LsfgLog.w(TAG, "failed to launch share chooser", it)
-                    }
-                    // The session is now done — tear it down.
-                    stopSelf()
-                }
-            }
-            override fun onFailed(state: BenchmarkController.State.Failed) {
-                LsfgLog.w(TAG, "benchmark failed: ${state.message}")
-                mainHandler.post {
-                    stopBenchmarkProgressPoller()
-                    overlay?.setBenchmarkProgressVisible(false)
-                    stopSelf()
-                }
-            }
-        })
-    }
-
-    /**
-     * Drives the in-overlay benchmark progress panel by polling the
-     * [BenchmarkController] state at 200 ms (the same cadence the Compose
-     * BenchmarkScreen uses, so the two stay visually in sync). The poller
-     * computes the elapsed/total fraction inside the current Running phase
-     * (warmup or sampling) and pushes it to [OverlayManager.updateBenchmarkProgress].
-     *
-     * Each phase resets the bar to 0 and refills as the phase advances; the
-     * label shows "Run x/y · <precision> ×<mult> — warming up | sampling" so
-     * the user can see how much of the run is left without leaving the game.
-     */
-    private fun startBenchmarkProgressPoller() {
-        if (benchmarkProgressPoller != null) return
-        val poll = object : Runnable {
-            override fun run() {
-                val ov = overlay
-                val st = BenchmarkController.currentState()
-                if (ov == null) {
-                    // Overlay torn down — exit the loop; teardown path will
-                    // null the field below the next time we look.
-                    benchmarkProgressPoller = null
-                    return
-                }
-                when (st) {
-                    is BenchmarkController.State.Running -> {
-                        val elapsed = (System.currentTimeMillis() - st.phaseStartedAtMs)
-                            .coerceAtLeast(0L)
-                        val phase = when (st.phase) {
-                            BenchmarkController.Phase.WARMUP -> "warming up"
-                            BenchmarkController.Phase.SAMPLING -> "sampling"
-                        }
-                        val label = "Run ${st.runIndex + 1}/${st.totalRuns} · " +
-                            "${st.precision.label} ×${st.multiplier} — $phase"
-                        ov.updateBenchmarkProgress(label, elapsed, st.phaseDurationMs)
-                        mainHandler.postDelayed(this, 200L)
-                    }
-                    is BenchmarkController.State.Completed,
-                    is BenchmarkController.State.Failed -> {
-                        // The controller's onCompleted/onFailed callbacks
-                        // already handle hiding the panel and stopping the
-                        // service — just exit the loop.
-                        benchmarkProgressPoller = null
-                    }
-                    BenchmarkController.State.Idle -> {
-                        // Controller hasn't published Running yet — keep
-                        // the "preparing" label visible and check again.
-                        mainHandler.postDelayed(this, 200L)
-                    }
-                }
-            }
-        }
-        benchmarkProgressPoller = poll
-        mainHandler.post(poll)
-    }
-
-    private fun stopBenchmarkProgressPoller() {
-        val p = benchmarkProgressPoller
-        benchmarkProgressPoller = null
-        if (p != null) mainHandler.removeCallbacks(p)
     }
 
     private fun launchTarget(pkg: String) {
@@ -1910,13 +1720,6 @@ class LsfgForegroundService : Service() {
         private const val CHANNEL_ID = "lsfg_session"
         private const val NOTIF_ID = 1001
 
-        /** Last benchmark report file produced by a benchmark session. The
-         *  Benchmark screen polls this so the user can re-share the file
-         *  after dismissing the system chooser. Set by the BenchmarkController
-         *  hook callback; cleared lazily by the UI when acknowledged. */
-        @Volatile
-        var lastBenchmarkReport: File? = null
-
         // Foreground target of the running session, mirrored to the static
         // scope so the always-on overlay watcher can match its probe result
         // against the session (null = no session running).
@@ -1942,11 +1745,6 @@ class LsfgForegroundService : Service() {
         const val EXTRA_TARGET_PACKAGE = "target_package"
         const val EXTRA_FPS_COUNTER = "fps_counter"
         const val EXTRA_CAPTURE_SOURCE = "capture_source"
-        // When true, after framegen reaches steady state the service hands
-        // control to BenchmarkController which runs three back-to-back passes
-        // (multiplier x2/x3/x4) and produces a shareable report. The session
-        // is stopped automatically when the report is ready.
-        const val EXTRA_BENCHMARK_REQUESTED = "benchmark_requested"
         // Set on rotation auto-restart intents: session must NOT re-launch
         // the target app (the user may have just left it for the desktop).
         const val EXTRA_AUTO_RESTART = "auto_restart"
@@ -1992,48 +1790,6 @@ class LsfgForegroundService : Service() {
             )
         }
 
-        /** MediaProjection variant that flips on EXTRA_BENCHMARK_REQUESTED. The
-         *  caller still supplies a fresh consent token (resultCode/resultData)
-         *  exactly like the normal path. */
-        fun buildBenchmarkStartIntent(
-            ctx: Context,
-            resultCode: Int,
-            resultData: Intent,
-            targetPackage: String?,
-            captureSource: CaptureSource = CaptureSource.MEDIA_PROJECTION,
-        ): Intent = Intent(ctx, LsfgForegroundService::class.java)
-            .setAction(ACTION_START)
-            .putExtra(EXTRA_RESULT_CODE, resultCode)
-            .putExtra(EXTRA_RESULT_DATA, resultData)
-            .putExtra(EXTRA_TARGET_PACKAGE, targetPackage)
-            .putExtra(EXTRA_FPS_COUNTER, false)
-            .putExtra(EXTRA_CAPTURE_SOURCE, captureSource.prefValue)
-            .putExtra(EXTRA_BENCHMARK_REQUESTED, true)
 
-        /** Shizuku-capture variant of the benchmark intent. No MediaProjection
-         *  consent token is required — the privileged side channel handles
-         *  capture without the system recording dialog. */
-        fun buildShizukuBenchmarkStartIntent(
-            ctx: Context,
-            targetPackage: String?,
-        ): Intent = Intent(ctx, LsfgForegroundService::class.java)
-            .setAction(ACTION_START)
-            .putExtra(EXTRA_TARGET_PACKAGE, targetPackage)
-            .putExtra(EXTRA_FPS_COUNTER, false)
-            .putExtra(EXTRA_CAPTURE_SOURCE, CaptureSource.SHIZUKU.prefValue)
-            .putExtra(EXTRA_BENCHMARK_REQUESTED, true)
-
-        /** Root-capture variant. Same shape as the Shizuku variant — no
-         *  consent intent, capture happens through the rooted privileged
-         *  pipeline. */
-        fun buildRootBenchmarkStartIntent(
-            ctx: Context,
-            targetPackage: String?,
-        ): Intent = Intent(ctx, LsfgForegroundService::class.java)
-            .setAction(ACTION_START)
-            .putExtra(EXTRA_TARGET_PACKAGE, targetPackage)
-            .putExtra(EXTRA_FPS_COUNTER, false)
-            .putExtra(EXTRA_CAPTURE_SOURCE, CaptureSource.ROOT.prefValue)
-            .putExtra(EXTRA_BENCHMARK_REQUESTED, true)
-    }
+        }
 }

@@ -63,6 +63,17 @@ object AutoOverlayController {
         sessionWatcher = watcher
     }
 
+    /**
+     * Watchdog for the launcher dot: a full-screen TYPE_APPLICATION_OVERLAY
+     * window that is left expanded after its panel closed keeps the whole
+     * display touch-dead (only the status bar and the navigation bar, which sit
+     * above it, still respond). Called from the watcher poll loop so the state
+     * self-heals within one poll interval even if an animation was cancelled.
+     */
+    fun enforceDotCollapsed() {
+        dot?.forceCollapseIfIdle()
+    }
+
     /** Hook for [AutoOverlayWatcherService]: runs a forced foreground probe
      *  async and delivers the fresh pkg (null = probe failed) to the callback. */
     @Volatile

@@ -485,41 +485,6 @@ class OverlayManager(private val ctx: Context) {
     }
 
     /**
-     * Show the benchmark progress panel (idempotent). The panel is hidden by
-     * default and only revealed while a benchmark is running.
-     */
-    fun setBenchmarkProgressVisible(visible: Boolean) {
-        val p = benchmarkPanel ?: return
-        p.post {
-            p.visibility = if (visible) View.VISIBLE else View.GONE
-            if (!visible) {
-                benchmarkBar?.progress = 0
-                benchmarkLabel?.text = ""
-            }
-        }
-    }
-
-    /**
-     * Update the benchmark progress panel.
-     *
-     * @param label one-line status, e.g. "Run 2/6 · FP32 ×3 — sampling"
-     * @param elapsedMs elapsed time inside the current phase
-     * @param totalMs total length of the current phase
-     */
-    fun updateBenchmarkProgress(label: String, elapsedMs: Long, totalMs: Long) {
-        val l = benchmarkLabel ?: return
-        val b = benchmarkBar ?: return
-        val clampedTotal = totalMs.coerceAtLeast(1L)
-        val ratio = (elapsedMs.toFloat() / clampedTotal).coerceIn(0f, 1f)
-        val remainingSec = ((clampedTotal - elapsedMs).coerceAtLeast(0L) + 999L) / 1000L
-        val text = ctx.getString(R.string.bench_remaining, label, remainingSec)
-        l.post {
-            l.text = text
-            b.progress = (ratio * 1000f).toInt()
-        }
-    }
-
-    /**
      * Visually hides the overlay WITHOUT tearing down the render pipeline:
      * the whole window is pushed off-screen (FLAG_LAYOUT_NO_LIMITS is
      * already set at show() time), keeping the TextureView SurfaceTexture

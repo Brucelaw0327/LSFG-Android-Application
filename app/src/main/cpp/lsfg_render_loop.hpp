@@ -51,27 +51,6 @@ struct RenderLoopConfig {
     // extraction step. The render loop transparently falls back to the FP32
     // path when either prerequisite is missing.
     bool framegenFp16;
-    bool npuPostProcessing;
-    int npuPreset;        // see NpuPreset: 0 off, 1 sharpen, 2 detail boost, 3 chroma clean, 4 game crisp
-    int npuUpscaleFactor; // 1 or 2
-    float npuAmount;      // 0.0 .. 1.0 enhance strength
-    float npuRadius;      // 0.5 .. 2.0 blur radius for unsharp-mask paths
-    float npuThreshold;   // 0.0 .. 1.0 (reserved)
-    bool npuFp16;
-    // CPU post-process: pure CPU pixel pass, applied after NPU (or in place
-    // of it when the user only toggled the CPU category). See CpuPreset.
-    bool cpuPostProcessing;
-    int cpuPreset;         // 0 off .. 6 cinematic
-    float cpuStrength;     // 0.0 .. 1.0
-    float cpuSaturation;   // 0.0 .. 1.0 (0.5 is neutral)
-    float cpuVibrance;     // 0.0 .. 1.0
-    float cpuVignette;     // 0.0 .. 1.0
-    bool gpuPostProcessing;
-    int gpuStage;          // 0 before LSFG on real frames, 1 after LSFG on final frames
-    int gpuMethod;         // see GpuPostProcessingMethod.nativeValue
-    float gpuUpscaleFactor;// 1.0 .. 2.0
-    float gpuSharpness;    // 0.0 .. 1.0
-    float gpuStrength;     // 0.0 .. 1.0
     // Pacing tunables (0/negative values fall back to defaults inside the loop).
     int targetFpsCap;      // 0 = unlimited
     float emaAlpha;        // 0.05 .. 0.5 (default 0.125)

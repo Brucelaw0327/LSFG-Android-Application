@@ -748,12 +748,6 @@ fun HomeScreen(nav: NavHostController) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 LsfgSecondaryButton(
-                    text = stringResource(R.string.benchmark_home_button),
-                    onClick = { nav.navigate(Routes.BENCHMARK) },
-                    leadingIcon = Icons.Filled.Speed,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                LsfgSecondaryButton(
                     text = stringResource(R.string.home_reread_legal),
                     onClick = { nav.navigate(Routes.LEGAL) },
                     leadingIcon = Icons.Filled.Gavel,

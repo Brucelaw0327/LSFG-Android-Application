@@ -102,6 +102,19 @@ class SettingsDrawerOverlay(
     private var dragStartY: Float = 0f
     private var dragStartProgress: Float = 0f
     private var settleAnimator: ValueAnimator? = null
+
+    /**
+     * Guards the "full-screen window stays expanded after the panel closed and
+     * eats every touch" failure. doOnEnd of the closing animation is the only
+     * path that used to shrink the window back, and a cancelled animation
+     * skips it — leaving an invisible MATCH_PARENT overlay on top of the game.
+     */
+    private val idleCollapseGuard = Runnable {
+        if (progress == 0f && !expanded) {
+            panelContainer?.visibility = View.GONE
+            collapseWindowIfNeeded()
+        }
+    }
     private var handlePulseAnimator: ValueAnimator? = null
 
     private var edgeStripWidthPx = 0
@@ -279,10 +292,22 @@ class SettingsDrawerOverlay(
         LsfgLog.i(TAG, "drawer bringToFront")
     }
 
+    /** External watchdog entry point — repairs a window left at MATCH_PARENT
+     *  while the drawer is closed (it would swallow every touch on screen). */
+    fun forceCollapseIfIdle() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            root?.post { forceCollapseIfIdle() }
+            return
+        }
+        if (progress > 0f || expanded) return
+        idleCollapseGuard.run()
+    }
+
     fun hide() {
         val r = root ?: return
         val wm = hostWindowManager
         LsfgLog.i(TAG, "drawer hide")
+        r.removeCallbacks(idleCollapseGuard)
         settleAnimator?.cancel()
         settleAnimator = null
         handlePulseAnimator?.cancel()
@@ -645,6 +670,11 @@ class SettingsDrawerOverlay(
     private fun setProgress(p: Float) {
         val wasZero = progress == 0f
         progress = p
+        val r = root
+        if (r != null) {
+            r.removeCallbacks(idleCollapseGuard)
+            if (p == 0f) r.postDelayed(idleCollapseGuard, 320L)
+        }
         val panelView = panelContainer ?: return
         panelView.visibility = View.VISIBLE
         // 自愈：面板可见的任何时刻强制确保窗口处于全屏展开态（幂等），
@@ -734,6 +764,9 @@ class SettingsDrawerOverlay(
         // game area pass through again.
         if (target == 0f) {
             anim.doOnEnd {
+                if (progress == 0f) collapseWindowIfNeeded()
+            }
+            anim.doOnCancel {
                 if (progress == 0f) collapseWindowIfNeeded()
             }
         }
@@ -1885,6 +1918,14 @@ class SettingsDrawerOverlay(
     private inline fun android.animation.Animator.doOnEnd(crossinline action: () -> Unit) {
         addListener(object : android.animation.AnimatorListenerAdapter() {
             override fun onAnimationEnd(animation: android.animation.Animator) {
+                action()
+            }
+        })
+    }
+
+    private inline fun android.animation.Animator.doOnCancel(crossinline action: () -> Unit) {
+        addListener(object : android.animation.AnimatorListenerAdapter() {
+            override fun onAnimationCancel(animation: android.animation.Animator) {
                 action()
             }
         })
