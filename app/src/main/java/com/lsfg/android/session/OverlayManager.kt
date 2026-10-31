@@ -18,8 +18,6 @@ import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 import com.lsfg.android.prefs.LsfgPreferences
 import com.lsfg.android.prefs.VsyncRefreshOverride
@@ -60,9 +58,6 @@ class OverlayManager(private val ctx: Context) {
     private var hostWindowManager: WindowManager? = null
     private var fpsView: TextView? = null
     private var graphView: FrameGraphView? = null
-    private var benchmarkPanel: LinearLayout? = null
-    private var benchmarkLabel: TextView? = null
-    private var benchmarkBar: ProgressBar? = null
     private var insetsListener: Any? = null
     private var internalInsetsListener: Any? = null
     private var frameLoopCallback: Choreographer.FrameCallback? = null
@@ -324,57 +319,6 @@ class OverlayManager(private val ctx: Context) {
             },
         )
 
-        // Benchmark progress panel — pinned to the top-center of the overlay,
-        // hidden until BenchmarkController publishes a Running state. Hosts
-        // a one-line label ("Run x/y · FP16 ×3 — sampling 28s left") and a
-        // horizontal ProgressBar that fills as the current phase advances and
-        // is reset at every phase transition.
-        val benchPanel = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xB0000000.toInt())
-            val padH = (metrics.density * 12f).toInt()
-            val padV = (metrics.density * 8f).toInt()
-            setPadding(padH, padV, padH, padV)
-            visibility = View.GONE
-        }
-        val benchLabel = TextView(ctx).apply {
-            text = ""
-            setTextColor(Color.WHITE)
-            textSize = 13f
-        }
-        val benchBar = ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 1000
-            progress = 0
-            isIndeterminate = false
-        }
-        benchPanel.addView(
-            benchLabel,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-        benchPanel.addView(
-            benchBar,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                (metrics.density * 6f).toInt(),
-            ).apply {
-                topMargin = (metrics.density * 4f).toInt()
-            },
-        )
-        val benchWidthPx = (metrics.density * 320f).toInt()
-        layout.addView(
-            benchPanel,
-            FrameLayout.LayoutParams(
-                benchWidthPx,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.CENTER_HORIZONTAL,
-            ).apply {
-                topMargin = 24
-            },
-        )
-
         wm.addView(layout, params)
 
         // Mark the overlay's SurfaceControl with skipScreenshot so SurfaceFlinger
@@ -400,9 +344,6 @@ class OverlayManager(private val ctx: Context) {
         root = layout
         fpsView = fps
         graphView = graph
-        benchmarkPanel = benchPanel
-        benchmarkLabel = benchLabel
-        benchmarkBar = benchBar
         textureView = tex
     }
 
@@ -448,10 +389,6 @@ class OverlayManager(private val ctx: Context) {
         r.post { syncOverlayGeometry() }
     }
 
-    fun updateStatus(line: String) {
-        // Status text was removed from the overlay; keep the API as a no-op so
-        // existing call sites in the foreground service continue to compile.
-    }
 
     fun setFpsVisible(visible: Boolean) {
         fpsView?.post { fpsView?.visibility = if (visible) View.VISIBLE else View.GONE }
@@ -559,9 +496,6 @@ class OverlayManager(private val ctx: Context) {
         textureView = null
         fpsView = null
         graphView = null
-        benchmarkPanel = null
-        benchmarkLabel = null
-        benchmarkBar = null
         hostWindowManager = null
     }
 

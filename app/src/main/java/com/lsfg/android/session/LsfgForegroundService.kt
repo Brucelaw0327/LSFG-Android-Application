@@ -1055,7 +1055,6 @@ class LsfgForegroundService : Service() {
             ShizukuCaptureEngine(this).also { engine ->
                 engine.setErrorListener { msg ->
                     LsfgLog.w(TAG, msg)
-                    ov.updateStatus(msg)
                 }
             }
         } else null
@@ -1068,7 +1067,6 @@ class LsfgForegroundService : Service() {
             RootCaptureEngine(this).also { engine ->
                 engine.setErrorListener { msg ->
                     LsfgLog.w(TAG, msg)
-                    ov.updateStatus(msg)
                 }
             }
         } else null
@@ -1111,7 +1109,6 @@ class LsfgForegroundService : Service() {
             cap?.frameGenBypass = true
             runCatching { NativeBridge.setBypass(true) }
                 .onFailure { LsfgLog.w(TAG, "initial setBypass failed", it) }
-            ov.updateStatus("LSFG: bypass (raw capture)")
         }
         // NOTE: deferring the initial FPS-counter wiring until AFTER ov.show() —
         // setFpsVisible() is a no-op when ov.fpsView hasn't been created yet,
@@ -1159,7 +1156,6 @@ class LsfgForegroundService : Service() {
                     cap.setLsfgNativeInputEnabled(false)
                     cap.setLsfgMode(w, h)
                 }
-                ov.updateStatus("LSFG: starting ${w}×${h}…")
 
                 val cfg = LsfgPreferences(this).load()
                 val cacheDir = File(filesDir, "spirv").absolutePath
@@ -1213,7 +1209,6 @@ class LsfgForegroundService : Service() {
                         if (isPrivilegedCapture) {
                             pendingPrivilegedVideoStart = ShizukuVideoStart(w, h, cfg)
                         }
-                        ov.updateStatus("LSFG: frame-gen active ${w}×${h} ×${cfg.multiplier}")
                         startSourceFpsGuard()
                         startOutputWatchdog()
                         startHdrGuard()
@@ -1226,18 +1221,15 @@ class LsfgForegroundService : Service() {
                             activeRenderH = 0
                             pendingPrivilegedVideoStart = ShizukuVideoStart(w, h, cfg)
                             val label = if (captureSource == CaptureSource.ROOT) "Root" else "Shizuku"
-                            ov.updateStatus("LSFG: $label mirror ${w}×${h} (GPU lacks required Vulkan ext)")
                         } else if (cap != null) {
                             cap.setSurface(surface, w, h)
                             activeRenderW = 0
                             activeRenderH = 0
                             // Retarget the bootstrap ImageReader capture to mirror
                             // mode because framegen is unavailable.
-                            ov.updateStatus("LSFG: mirror ${w}×${h} (GPU lacks required Vulkan ext)")
                         } else {
                             activeRenderW = 0
                             activeRenderH = 0
-                            ov.updateStatus("LSFG: frame-gen unavailable (init rc=$rc)")
                         }
                     }
                     else -> {
@@ -1247,11 +1239,8 @@ class LsfgForegroundService : Service() {
                         if (isPrivilegedCapture && rc > 0) {
                             pendingPrivilegedVideoStart = ShizukuVideoStart(w, h, cfg)
                             val label = if (captureSource == CaptureSource.ROOT) "Root" else "Shizuku"
-                            ov.updateStatus("LSFG: $label mirror active ${w}×${h} (init rc=$rc)")
                         } else if (cap != null) {
-                            ov.updateStatus("LSFG: mirror active ${w}×${h} (init rc=$rc)")
                         } else {
-                            ov.updateStatus("LSFG: init failed (rc=$rc)")
                         }
                     }
                 }
@@ -1386,7 +1375,6 @@ class LsfgForegroundService : Service() {
             capture?.frameGenBypass = bypass
             runCatching { NativeBridge.setBypass(bypass) }
                 .onFailure { LsfgLog.w(TAG, "setBypass failed", it) }
-            ov.updateStatus(if (bypass) "LSFG: bypass (raw capture)" else "LSFG: frame-gen active")
         }
         dr.setStopOverlayListener {
             LsfgLog.i(TAG, "Stop overlay requested from drawer")
@@ -1560,7 +1548,6 @@ class LsfgForegroundService : Service() {
                         startShizukuVideo(shizukuCapture, reinitTarget, targetW, targetH, cfg)
                         startRootVideo(rootCapture, reinitTarget, targetW, targetH, cfg)
                         mainHandler.post {
-                            ov.updateStatus("LSFG: ${lastSurfaceW}×${lastSurfaceH} ×${cfg.multiplier} flow=${"%.2f".format(cfg.flowScale)}")
                         }
                     } else {
                         LsfgLog.w(TAG, "reinit rc=$rc — framegen disabled, staying in mirror mode")
@@ -1573,11 +1560,8 @@ class LsfgForegroundService : Service() {
                         startRootVideo(rootCapture, reinitTarget, targetW, targetH, cfg)
                         mainHandler.post {
                             if ((shizukuCapture != null || rootCapture != null) && cap != null) {
-                                ov.updateStatus("LSFG: privileged capture unavailable for mirror fallback (frame-gen unavailable)")
                             } else if (cap != null) {
-                                ov.updateStatus("LSFG: mirror ${width}×${height} (GPU lacks required Vulkan ext)")
                             } else {
-                                ov.updateStatus("LSFG: frame-gen unavailable (init rc=$rc)")
                             }
                         }
                     }

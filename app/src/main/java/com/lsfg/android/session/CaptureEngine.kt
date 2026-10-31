@@ -77,17 +77,6 @@ class CaptureEngine(
     private var fpsListener: FpsListener? = null
     @Volatile
     private var graphListener: FrameGraphListener? = null
-    private var fpsThread: HandlerThread? = null
-    private var fpsHandler: Handler? = null
-    private var fpsPoller: Runnable? = null
-    private var graphPoller: Runnable? = null
-
-    private var fpsWindowStartMs: Long = 0L
-
-    // Parallel counters for the graph poller — kept separate so the 1 Hz FPS
-    // window and the 5 Hz graph window don't steal each other's deltas.
-    private var graphWindowStartMs: Long = 0L
-    private var graphLastGeneratedCount: Long = 0L
 
     fun setFpsListener(l: FpsListener?) {
         fpsListener = l
@@ -96,153 +85,36 @@ class CaptureEngine(
     fun setFrameGraphListener(l: FrameGraphListener?) {
         graphListener = l
     }
+    private val metrics = FrameMetricsPoller()
 
-    private fun ensureFpsThread(): Handler {
-        val existing = fpsHandler
-        if (existing != null) return existing
-        val t = HandlerThread("lsfg-fps").also { it.start() }
-        val h = Handler(t.looper)
-        fpsThread = t
-        fpsHandler = h
-        return h
-    }
-
-    private fun maybeQuitFpsThread() {
-        if (fpsPoller == null && graphPoller == null) {
-            fpsThread?.quitSafely()
-            fpsThread = null
-            fpsHandler = null
-        }
-    }
-
-    // FPS / graph polling used to count ImageReader callbacks and framegen-
-    // generated frames separately. That was wrong on two counts:
-    //   (1) ImageReader fires at the display refresh rate (120 Hz on most
-    //       flagships), not at the target app's render rate — so "real fps"
-    //       would show 120 even for a 60-fps game;
-    //   (2) The worker drops many captures (queueDepth=2), so the ImageReader
-    //       count wasn't even the "posted to overlay" count — summing it
-    //       with genFps double-counted.
-    // Now we ask the native side for two ground-truth counters:
-    //   uniqueCaptures  — frames with distinct pixel content (target render rate)
-    //   postedFrames    — frames actually posted to the overlay (CPU or WSI path)
-    @Volatile
-    private var lastUniqueCaptureCount: Long = 0L
-    @Volatile
-    private var graphLastUniqueCaptureCount: Long = 0L
-    @Volatile
-    private var lastPostedCount: Long = 0L
-    // EMA state for the 5 Hz frame graph. Raw per-window counts jitter because
-    // the 200 ms window catches an integer number of worker cycles (typically
-    // 5-7 of ~33 ms), and the boundary varies — so 20 % raw jitter even when
-    // the underlying rate is steady. α=0.35 → ~3-sample lag ≈ 600 ms settling,
-    // slow enough to kill aliasing, fast enough to follow real rate changes.
-    @Volatile
-    private var graphRealEma: Float = 0f
-    @Volatile
-    private var graphGenEma: Float = 0f
-
-    @Synchronized
     fun startFpsCounter() {
-        if (fpsPoller != null) return
-        val h = ensureFpsThread()
-
-        fpsWindowStartMs = SystemClock.elapsedRealtime()
-        lastUniqueCaptureCount = runCatching { NativeBridge.getUniqueCaptureCount() }.getOrDefault(0L)
-        lastPostedCount = runCatching { NativeBridge.getPostedFrameCount() }.getOrDefault(0L)
-        val poll = object : Runnable {
-            override fun run() {
-                val now = SystemClock.elapsedRealtime()
-                val elapsed = (now - fpsWindowStartMs).coerceAtLeast(1L)
-                fpsWindowStartMs = now
-
-                val uniqNow = runCatching { NativeBridge.getUniqueCaptureCount() }.getOrDefault(0L)
-                val uniqDelta = (uniqNow - lastUniqueCaptureCount).coerceAtLeast(0L)
-                lastUniqueCaptureCount = uniqNow
-                val realFps = uniqDelta * 1000f / elapsed
-
-                val postedNow = runCatching { NativeBridge.getPostedFrameCount() }.getOrDefault(0L)
-                val postedDelta = (postedNow - lastPostedCount).coerceAtLeast(0L)
-                lastPostedCount = postedNow
-                val totalFps = postedDelta * 1000f / elapsed
-
-                fpsListener?.onFpsUpdate(realFps, totalFps)
-                fpsHandler?.postDelayed(this, 1000L)
-            }
+        metrics.startFps { realFps, totalFps ->
+            fpsListener?.onFpsUpdate(realFps, totalFps)
         }
-        fpsPoller = poll
-        h.postDelayed(poll, 1000L)
         LsfgLog.i(TAG, "FPS counter started (native counters)")
     }
 
-    @Synchronized
     fun stopFpsCounter() {
-        fpsPoller?.let { fpsHandler?.removeCallbacks(it) }
-        fpsPoller = null
-        maybeQuitFpsThread()
+        metrics.stopFps()
     }
 
-    @Synchronized
     fun startFrameGraph() {
-        if (graphPoller != null) return
-        val h = ensureFpsThread()
-
-        graphWindowStartMs = SystemClock.elapsedRealtime()
-        graphLastUniqueCaptureCount = runCatching { NativeBridge.getUniqueCaptureCount() }.getOrDefault(0L)
-        graphLastGeneratedCount = runCatching { NativeBridge.getGeneratedFrameCount() }.getOrDefault(0L)
-        graphRealEma = 0f
-        graphGenEma = 0f
-        val poll = object : Runnable {
-            override fun run() {
-                val now = SystemClock.elapsedRealtime()
-                val elapsed = (now - graphWindowStartMs).coerceAtLeast(1L)
-                graphWindowStartMs = now
-
-                // Real line: target-app render rate, measured as the rate of
-                // capture frames whose pixel content changed vs. the prior
-                // frame. This is the ground truth for "how fast is the game
-                // actually producing new content".
-                val uniqNow = runCatching { NativeBridge.getUniqueCaptureCount() }.getOrDefault(0L)
-                val uniqDelta = (uniqNow - graphLastUniqueCaptureCount).coerceAtLeast(0L)
-                graphLastUniqueCaptureCount = uniqNow
-                val realFpsRaw = uniqDelta * 1000f / elapsed
-
-                // Generated line: LSFG-interpolated output frames. Incremented
-                // in the native worker by `g.outputs.size()` per cycle — a
-                // clean count of synthetic frames independent of capture rate.
-                // Using this directly (instead of postedDelta - realPosted,
-                // which double-counted when uniqDelta > cycle rate) fixes the
-                // "30 fps of generated" mismatch seen with 60 fps games.
-                val genNow = runCatching { NativeBridge.getGeneratedFrameCount() }.getOrDefault(0L)
-                val genDelta = (genNow - graphLastGeneratedCount).coerceAtLeast(0L)
-                graphLastGeneratedCount = genNow
-                val genFpsRaw = genDelta * 1000f / elapsed
-
-                // EMA smoothing — flattens the aliasing jitter that comes from
-                // a 200 ms window catching 5-7 worker cycles depending on
-                // phase. Seeds with the first real value so the curve doesn't
-                // start from zero.
-                val alpha = 0.35f
-                graphRealEma = if (graphRealEma <= 0.01f) realFpsRaw
-                               else alpha * realFpsRaw + (1f - alpha) * graphRealEma
-                graphGenEma  = if (graphGenEma  <= 0.01f) genFpsRaw
-                               else alpha * genFpsRaw  + (1f - alpha) * graphGenEma
-
-                graphListener?.onFrameGraphSample(graphRealEma, graphGenEma)
-                fpsHandler?.postDelayed(this, 200L)
-            }
+        metrics.startGraph { realFps, generatedFps ->
+            graphListener?.onFrameGraphSample(realFps, generatedFps)
         }
-        graphPoller = poll
-        h.postDelayed(poll, 200L)
         LsfgLog.i(TAG, "Frame graph started (5 Hz, EMA-smoothed native counters)")
     }
 
-    @Synchronized
     fun stopFrameGraph() {
-        graphPoller?.let { fpsHandler?.removeCallbacks(it) }
-        graphPoller = null
-        maybeQuitFpsThread()
+        metrics.stopGraph()
     }
+
+
+
+
+
+
+
 
 
     // --- LSFG mode ---

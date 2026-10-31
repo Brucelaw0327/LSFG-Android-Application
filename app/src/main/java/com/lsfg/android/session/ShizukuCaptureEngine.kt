@@ -33,19 +33,6 @@ class ShizukuCaptureEngine(
     private var fpsListener: CaptureEngine.FpsListener? = null
     @Volatile
     private var graphListener: CaptureEngine.FrameGraphListener? = null
-    private var metricsThread: HandlerThread? = null
-    private var metricsHandler: Handler? = null
-    private var fpsPoller: Runnable? = null
-    private var graphPoller: Runnable? = null
-    @Volatile
-    private var fpsWindowStartMs: Long = 0L
-    private var graphWindowStartMs: Long = 0L
-    private var graphLastGeneratedCount: Long = 0L
-    private var lastUniqueCaptureCount: Long = 0L
-    private var graphLastUniqueCaptureCount: Long = 0L
-    private var lastPostedCount: Long = 0L
-    private var graphRealEma: Float = 0f
-    private var graphGenEma: Float = 0f
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder?) {
@@ -116,6 +103,30 @@ class ShizukuCaptureEngine(
     fun setFrameGraphListener(listener: CaptureEngine.FrameGraphListener?) {
         graphListener = listener
     }
+    private val metrics = FrameMetricsPoller()
+
+    fun startFpsCounter() {
+        metrics.startFps { realFps, totalFps ->
+            fpsListener?.onFpsUpdate(realFps, totalFps)
+        }
+        LsfgLog.i(TAG, "Shizuku FPS counter started (native counters)")
+    }
+
+    fun stopFpsCounter() {
+        metrics.stopFps()
+    }
+
+    fun startFrameGraph() {
+        metrics.startGraph { realFps, generatedFps ->
+            graphListener?.onFrameGraphSample(realFps, generatedFps)
+        }
+        LsfgLog.i(TAG, "Shizuku frame graph started (native counters)")
+    }
+
+    fun stopFrameGraph() {
+        metrics.stopGraph()
+    }
+
 
     fun isReady(): Boolean {
         return runCatching {
@@ -175,109 +186,11 @@ class ShizukuCaptureEngine(
         runCatching { service?.stopCapture() }
     }
 
-    @Synchronized
-    fun startFpsCounter() {
-        if (fpsPoller != null) return
-        val h = ensureMetricsThread()
-        fpsWindowStartMs = SystemClock.elapsedRealtime()
-        lastUniqueCaptureCount = runCatching { NativeBridge.getUniqueCaptureCount() }.getOrDefault(0L)
-        lastPostedCount = runCatching { NativeBridge.getPostedFrameCount() }.getOrDefault(0L)
-        val poll = object : Runnable {
-            override fun run() {
-                val now = SystemClock.elapsedRealtime()
-                val elapsed = (now - fpsWindowStartMs).coerceAtLeast(1L)
-                fpsWindowStartMs = now
 
-                val uniqNow = runCatching { NativeBridge.getUniqueCaptureCount() }.getOrDefault(0L)
-                val uniqDelta = (uniqNow - lastUniqueCaptureCount).coerceAtLeast(0L)
-                lastUniqueCaptureCount = uniqNow
-                val realFps = uniqDelta * 1000f / elapsed
 
-                val postedNow = runCatching { NativeBridge.getPostedFrameCount() }.getOrDefault(0L)
-                val postedDelta = (postedNow - lastPostedCount).coerceAtLeast(0L)
-                lastPostedCount = postedNow
-                val totalFps = postedDelta * 1000f / elapsed
 
-                fpsListener?.onFpsUpdate(realFps, totalFps)
-                metricsHandler?.postDelayed(this, 1000L)
-            }
-        }
-        fpsPoller = poll
-        h.postDelayed(poll, 1000L)
-        LsfgLog.i(TAG, "Shizuku FPS counter started (native counters)")
-    }
 
-    @Synchronized
-    fun stopFpsCounter() {
-        fpsPoller?.let { metricsHandler?.removeCallbacks(it) }
-        fpsPoller = null
-        maybeQuitMetricsThread()
-    }
 
-    @Synchronized
-    fun startFrameGraph() {
-        if (graphPoller != null) return
-        val h = ensureMetricsThread()
-        graphWindowStartMs = SystemClock.elapsedRealtime()
-        graphLastUniqueCaptureCount = runCatching { NativeBridge.getUniqueCaptureCount() }.getOrDefault(0L)
-        graphLastGeneratedCount = runCatching { NativeBridge.getGeneratedFrameCount() }.getOrDefault(0L)
-        graphRealEma = 0f
-        graphGenEma = 0f
-        val poll = object : Runnable {
-            override fun run() {
-                val now = SystemClock.elapsedRealtime()
-                val elapsed = (now - graphWindowStartMs).coerceAtLeast(1L)
-                graphWindowStartMs = now
-
-                val uniqNow = runCatching { NativeBridge.getUniqueCaptureCount() }.getOrDefault(0L)
-                val uniqDelta = (uniqNow - graphLastUniqueCaptureCount).coerceAtLeast(0L)
-                graphLastUniqueCaptureCount = uniqNow
-                val realFpsRaw = uniqDelta * 1000f / elapsed
-
-                val generated = runCatching { NativeBridge.getGeneratedFrameCount() }.getOrDefault(0L)
-                val genDelta = (generated - graphLastGeneratedCount).coerceAtLeast(0L)
-                graphLastGeneratedCount = generated
-                val genFpsRaw = genDelta * 1000f / elapsed
-
-                val alpha = 0.35f
-                graphRealEma = if (graphRealEma <= 0.01f) realFpsRaw
-                               else alpha * realFpsRaw + (1f - alpha) * graphRealEma
-                graphGenEma = if (graphGenEma <= 0.01f) genFpsRaw
-                              else alpha * genFpsRaw + (1f - alpha) * graphGenEma
-
-                graphListener?.onFrameGraphSample(graphRealEma, graphGenEma)
-                metricsHandler?.postDelayed(this, 200L)
-            }
-        }
-        graphPoller = poll
-        h.postDelayed(poll, 200L)
-        LsfgLog.i(TAG, "Shizuku frame graph started (native counters)")
-    }
-
-    @Synchronized
-    fun stopFrameGraph() {
-        graphPoller?.let { metricsHandler?.removeCallbacks(it) }
-        graphPoller = null
-        maybeQuitMetricsThread()
-    }
-
-    private fun ensureMetricsThread(): Handler {
-        val existing = metricsHandler
-        if (existing != null) return existing
-        val t = HandlerThread("lsfg-shizuku-metrics").also { it.start() }
-        val h = Handler(t.looper)
-        metricsThread = t
-        metricsHandler = h
-        return h
-    }
-
-    private fun maybeQuitMetricsThread() {
-        if (fpsPoller == null && graphPoller == null) {
-            metricsThread?.quitSafely()
-            metricsThread = null
-            metricsHandler = null
-        }
-    }
 
     private fun bind() {
         if (!isReady()) {
