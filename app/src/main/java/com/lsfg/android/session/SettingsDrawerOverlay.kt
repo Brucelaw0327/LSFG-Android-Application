@@ -805,7 +805,36 @@ class SettingsDrawerOverlay(
         }
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "expandWindow failed", it) }
-        syncIconOffsetToWindowState()
+        syncIconOffsetAfterRelayout()
+    }
+
+    /**
+     * Same as [LauncherDotOverlay.syncIconOffsetAfterRelayout]: updateViewLayout
+     * is asynchronous, so flipping the icon translation in the same frame makes
+     * the icon render at the wrong corner until the relayout lands.
+     */
+    private fun syncIconOffsetAfterRelayout(deadlineMs: Long = 150L) {
+        if (entryMode != OverlayMode.ICON_BUTTON) return
+        val host = root ?: return
+        val listener = object : View.OnLayoutChangeListener {
+            override fun onLayoutChange(
+                v: View, left: Int, top: Int, right: Int, bottom: Int,
+                oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int,
+            ) {
+                val laidOutFullscreen = v.width > iconSizePx * 2
+                val paramsFullscreen =
+                    params?.width == WindowManager.LayoutParams.MATCH_PARENT
+                if (laidOutFullscreen == paramsFullscreen) {
+                    v.removeOnLayoutChangeListener(this)
+                    syncIconOffsetToWindowState()
+                }
+            }
+        }
+        host.addOnLayoutChangeListener(listener)
+        host.postDelayed({
+            host.removeOnLayoutChangeListener(listener)
+            syncIconOffsetToWindowState()
+        }, deadlineMs)
     }
 
     private fun collapseWindowIfNeeded() {
@@ -828,7 +857,8 @@ class SettingsDrawerOverlay(
         panelContainer?.visibility = View.GONE
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "collapseWindowIfNeeded failed", it) }
-        syncIconOffsetToWindowState()
+        // Clear the compensating offset only after the shrink is applied.
+        syncIconOffsetAfterRelayout()
     }
 
     /**

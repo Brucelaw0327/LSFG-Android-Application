@@ -363,6 +363,7 @@ class LauncherDotOverlay(
         }
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "relayoutForCurrentDisplay updateViewLayout failed", it) }
+        syncIconOffsetAfterRelayout()
         Log.i(TAG, "Launcher relayout for ${newW}x${newH} mode=$entryMode")
     }
 
@@ -590,7 +591,39 @@ class LauncherDotOverlay(
         }
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "expandWindow failed", it) }
-        syncIconOffsetToWindowState()
+        syncIconOffsetAfterRelayout()
+    }
+
+    /**
+     * Applies the icon offset only **after** the window has actually been laid
+     * out at its new size. updateViewLayout() is an asynchronous request: if the
+     * translation is flipped in the same frame, the window is still at its old
+     * geometry for a frame or two and the dot renders at the wrong corner — the
+     * "dot flies in from the top-left" the user sees when the panel closes.
+     */
+    private fun syncIconOffsetAfterRelayout(deadlineMs: Long = 150L) {
+        if (entryMode != OverlayMode.ICON_BUTTON) return
+        val host = root ?: return
+        val listener = object : View.OnLayoutChangeListener {
+            override fun onLayoutChange(
+                v: View, left: Int, top: Int, right: Int, bottom: Int,
+                oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int,
+            ) {
+                val laidOutFullscreen = v.width > iconSizePx * 2
+                val paramsFullscreen =
+                    params?.width == WindowManager.LayoutParams.MATCH_PARENT
+                if (laidOutFullscreen == paramsFullscreen) {
+                    v.removeOnLayoutChangeListener(this)
+                    syncIconOffsetToWindowState()
+                }
+            }
+        }
+        host.addOnLayoutChangeListener(listener)
+        // Safety net: never leave the offset out of sync if no layout lands.
+        host.postDelayed({
+            host.removeOnLayoutChangeListener(listener)
+            syncIconOffsetToWindowState()
+        }, deadlineMs)
     }
 
     private fun collapseWindowIfNeeded() {
@@ -614,8 +647,8 @@ class LauncherDotOverlay(
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "collapseWindowIfNeeded failed", it) }
         // Window origin is back at (iconX, iconY) — drop the compensating
-        // offset, otherwise the dot would render off its parked position.
-        syncIconOffsetToWindowState()
+        // offset once the shrink has actually been applied (see the helper).
+        syncIconOffsetAfterRelayout()
     }
 
     private fun applyPanelProgress(panelView: View, p: Float) {
