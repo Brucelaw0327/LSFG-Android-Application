@@ -85,7 +85,6 @@ class CaptureEngine(
     @Volatile
     private var fpsFrameCount: Long = 0
     private var fpsWindowStartMs: Long = 0L
-    private var lastGeneratedCount: Long = 0L
 
     // Parallel counters for the graph poller — kept separate so the 1 Hz FPS
     // window and the 5 Hz graph window don't steal each other's deltas.
@@ -137,8 +136,6 @@ class CaptureEngine(
     private var graphLastUniqueCaptureCount: Long = 0L
     @Volatile
     private var lastPostedCount: Long = 0L
-    @Volatile
-    private var graphLastPostedCount: Long = 0L
     // EMA state for the 5 Hz frame graph. Raw per-window counts jitter because
     // the 200 ms window catches an integer number of worker cycles (typically
     // 5-7 of ~33 ms), and the boundary varies — so 20 % raw jitter even when
@@ -271,7 +268,6 @@ class CaptureEngine(
     // generated frames to the overlay (which it learned about via setOutputSurface).
     private var lsfgReader: ImageReader? = null
     private var lsfgThread: HandlerThread? = null
-    private var lsfgHandler: Handler? = null
     private var lsfgFrameLogCount: Int = 0
 
     @Volatile
@@ -292,9 +288,10 @@ class CaptureEngine(
         stopLsfgMode()
 
         val t = HandlerThread("lsfg-capture-lsfg").also { it.start() }
+        // Local-only: the listener + VirtualDisplay take this handler directly.
+        // It used to be mirrored into a field that nothing ever read.
         val h = Handler(t.looper)
         lsfgThread = t
-        lsfgHandler = h
         lsfgFrameLogCount = 0
 
         val reader = ImageReader.newInstance(
@@ -376,7 +373,6 @@ class CaptureEngine(
         lsfgReader = null
         lsfgThread?.quitSafely()
         lsfgThread = null
-        lsfgHandler = null
     }
 
     /**

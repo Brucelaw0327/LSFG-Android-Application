@@ -28,8 +28,6 @@ class ShizukuCaptureEngine(
     private var pendingStart: StartArgs? = null
     @Volatile
     private var errorListener: ErrorListener? = null
-    @Volatile
-    private var metricsOnly: Boolean = false
 
     @Volatile
     private var fpsListener: CaptureEngine.FpsListener? = null
@@ -45,7 +43,6 @@ class ShizukuCaptureEngine(
     private var graphFrameCount: Long = 0
     private var fpsWindowStartMs: Long = 0L
     private var graphWindowStartMs: Long = 0L
-    private var lastGeneratedCount: Long = 0L
     private var graphLastGeneratedCount: Long = 0L
     private var lastUniqueCaptureCount: Long = 0L
     private var graphLastUniqueCaptureCount: Long = 0L
@@ -140,12 +137,6 @@ class ShizukuCaptureEngine(
     }
 
     fun startCapture(targetPackage: String, width: Int, height: Int, maxFps: Int) {
-        metricsOnly = false
-        startCaptureInternal(targetPackage, width, height, maxFps)
-    }
-
-    fun startMetricsOnly(targetPackage: String, width: Int, height: Int, maxFps: Int) {
-        metricsOnly = true
         startCaptureInternal(targetPackage, width, height, maxFps)
     }
 
@@ -166,7 +157,7 @@ class ShizukuCaptureEngine(
         }
         runCatching {
             svc.startCapture(targetUid, width, height, maxFps, frameCallback)
-            LsfgLog.i(TAG, "Shizuku ${if (metricsOnly) "metrics" else "capture"} started package=$targetPackage uid=$targetUid ${width}x${height}")
+            LsfgLog.i(TAG, "Shizuku capture started package=$targetPackage uid=$targetUid ${width}x${height}")
         }.onFailure {
             LsfgLog.w(TAG, "Shizuku startCapture failed", it)
             errorListener?.onError("Shizuku start failed: ${it.message ?: it.javaClass.simpleName}")
@@ -321,9 +312,7 @@ class ShizukuCaptureEngine(
             fpsFrameCount++
             graphFrameCount++
             try {
-                if (!metricsOnly) {
-                    NativeBridge.pushFrame(buffer, timestampNs)
-                }
+                NativeBridge.pushFrame(buffer, timestampNs)
             } catch (t: Throwable) {
                 LsfgLog.w(TAG, "pushFrame from Shizuku failed", t)
             } finally {

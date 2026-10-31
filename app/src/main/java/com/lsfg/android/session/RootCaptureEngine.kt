@@ -25,7 +25,6 @@ class RootCaptureEngine(private val ctx: Context) {
     @Volatile private var pendingStart: StartArgs? = null
 
     @Volatile private var errorListener: ErrorListener? = null
-    @Volatile private var metricsOnly: Boolean = false
     @Volatile private var fpsListener: CaptureEngine.FpsListener? = null
     @Volatile private var graphListener: CaptureEngine.FrameGraphListener? = null
     private var metricsThread: HandlerThread? = null
@@ -66,8 +65,6 @@ class RootCaptureEngine(private val ctx: Context) {
     fun setErrorListener(listener: ErrorListener?) { errorListener = listener }
     fun setFpsListener(listener: CaptureEngine.FpsListener?) { fpsListener = listener }
     fun setFrameGraphListener(listener: CaptureEngine.FrameGraphListener?) { graphListener = listener }
-
-    fun isReady(): Boolean = Shell.isAppGrantedRoot() == true
 
     /**
      * Privileged process-liveness probe via libsu. True/false = probe result;
@@ -111,12 +108,6 @@ class RootCaptureEngine(private val ctx: Context) {
     }
 
     fun startCapture(targetPackage: String, width: Int, height: Int, maxFps: Int) {
-        metricsOnly = false
-        startCaptureInternal(targetPackage, width, height, maxFps)
-    }
-
-    fun startMetricsOnly(targetPackage: String, width: Int, height: Int, maxFps: Int) {
-        metricsOnly = true
         startCaptureInternal(targetPackage, width, height, maxFps)
     }
 
@@ -136,7 +127,7 @@ class RootCaptureEngine(private val ctx: Context) {
         }
         runCatching {
             svc.startCapture(targetUid, width, height, maxFps, frameCallback)
-            LsfgLog.i(TAG, "Root ${if (metricsOnly) "metrics" else "capture"} started pkg=$targetPackage uid=$targetUid ${width}x${height}")
+            LsfgLog.i(TAG, "Root capture started pkg=$targetPackage uid=$targetUid ${width}x${height}")
         }.onFailure {
             LsfgLog.w(TAG, "Root startCapture failed", it)
             errorListener?.onError("Root capture start failed: ${it.message ?: it.javaClass.simpleName}")
@@ -283,7 +274,7 @@ class RootCaptureEngine(private val ctx: Context) {
             fpsFrameCount++
             graphFrameCount++
             try {
-                if (!metricsOnly) NativeBridge.pushFrame(buffer, timestampNs)
+                NativeBridge.pushFrame(buffer, timestampNs)
             } catch (t: Throwable) {
                 LsfgLog.w(TAG, "pushFrame from root failed", t)
             } finally {
