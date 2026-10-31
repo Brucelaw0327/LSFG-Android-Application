@@ -56,6 +56,19 @@ fun produceConfigState(prefs: LsfgPreferences): StateFlow<LsfgConfig> {
     return shared
 }
 
+/** Kept for callers that write and immediately read back; the preference
+ *  listener in [ConfigRepository] would deliver the same value a moment later. */
 fun refreshConfigState(prefs: LsfgPreferences) {
     shared.value = prefs.load()
+}
+
+/**
+ * Wires the process-wide preference listener into [shared] so writes made
+ * outside the UI (in-game drawer, foreground service) are reflected on screen.
+ * Call once from the single Activity.
+ */
+fun bindConfigState(ctx: android.content.Context) {
+    com.lsfg.android.prefs.ConfigRepository.install(ctx) { config ->
+        shared.value = config
+    }
 }

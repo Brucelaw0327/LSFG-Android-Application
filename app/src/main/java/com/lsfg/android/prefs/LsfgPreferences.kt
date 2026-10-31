@@ -242,7 +242,8 @@ class LsfgPreferences(ctx: Context) {
     fun setFpsGuardThreshold(value: Int) = prefs.edit().putInt(KEY_FPS_GUARD_THRESHOLD, value).apply()
 
     companion object {
-        private const val FILE = "lsfg_prefs"
+        /** Shared with [ConfigRepository], which watches this file for changes. */
+        const val FILE = "lsfg_prefs"
         private const val KEY_DLL_URI = "dll_uri"
         private const val KEY_DLL_NAME = "dll_name"
         private const val KEY_SHADERS_READY = "shaders_ready"

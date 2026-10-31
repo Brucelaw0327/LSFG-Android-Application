@@ -160,6 +160,7 @@ object AutoOverlayController {
         }
     }
 
+    @Synchronized
     fun onForegroundPackage(ctx: Context, pkg: String) {
         if (pkg == ctx.packageName) return
         lastForegroundPkg = pkg

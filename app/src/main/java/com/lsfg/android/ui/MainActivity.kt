@@ -16,6 +16,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Listen for config writes from outside the UI (drawer / foreground
+        // service) so screens never show stale values.
+        bindConfigState(this)
         setContent {
             LsfgTheme {
                 Surface(

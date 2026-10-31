@@ -20,8 +20,17 @@ import java.util.Locale
  */
 object LsfgLog {
 
+    @Volatile
     private var file: File? = null
-    private val timestampFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+
+    /**
+     * SimpleDateFormat is not thread-safe and this object is called from ~10
+     * modules on arbitrary threads (worker thread, ImageReader callbacks, main
+     * thread). One instance per thread keeps formatting correct without
+     * allocating a formatter for every line.
+     */
+    private val timestampFormat: ThreadLocal<SimpleDateFormat> =
+        ThreadLocal.withInitial { SimpleDateFormat("HH:mm:ss.SSS", Locale.US) }
 
     fun init(ctx: Context) {
         file = CrashReporter.logFile(ctx)
@@ -42,12 +51,18 @@ object LsfgLog {
         append('E', tag, msg, tr)
     }
 
+    /**
+     * Serialised on purpose: concurrent appends used to interleave partial lines
+     * (and could throw from the shared formatter), which corrupted the only
+     * diagnostic channel we have — the log file read back over adb.
+     */
+    @Synchronized
     private fun append(level: Char, tag: String, msg: String, tr: Throwable?) {
         val f = file ?: return
         try {
             FileWriter(f, true).use { fw ->
                 PrintWriter(fw).use { pw ->
-                    val ts = timestampFormat.format(Date())
+                    val ts = timestampFormat.get()?.format(Date()) ?: ""
                     pw.print(ts); pw.print(' '); pw.print(level); pw.print('/'); pw.print(tag); pw.print(": "); pw.println(msg)
                     if (tr != null) {
                         val sw = StringWriter()
