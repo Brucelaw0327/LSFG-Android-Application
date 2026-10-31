@@ -40,11 +40,18 @@ class AutoOverlayWatcherService : Service() {
     private var mpStrikes = 0
     private var smallWindowStrikes = 0
 
+    /** True while our notification id is held as a foreground notification. */
+    private var foregroundCardShown = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         AutoOverlayController.init(applicationContext)
+        // Claim the standby notification before posting it, so show()/hide()
+        // from the session service route into an in-place re-render instead of
+        // creating a second card.
+        SessionQuickToggle.setHost { withActions -> renderStandby(withActions) }
         startForegroundCompat()
         pollThread = HandlerThread("lsfg-auto-overlay").also { it.start() }
         pollHandler = Handler(pollThread!!.looper)
@@ -78,6 +85,7 @@ class AutoOverlayWatcherService : Service() {
         shizukuEngine = null
         // Watcher gone — the quick toggle would advertise a start path whose
         // process anchor just disappeared. The next watcher/app start re-shows it.
+        SessionQuickToggle.setHost(null)
         runCatching { SessionQuickToggle.hide(applicationContext) }
         LsfgLog.i(TAG, "auto overlay watcher stopped")
         super.onDestroy()
@@ -201,32 +209,65 @@ class AutoOverlayWatcherService : Service() {
     }
 
     private fun startForegroundCompat() {
-        val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (mgr.getNotificationChannel(CHANNEL_ID) == null) {
-            mgr.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    getString(R.string.auto_overlay_watcher_notif),
-                    NotificationManager.IMPORTANCE_MIN,
-                ),
-            )
+        // This service's foreground notification IS the standby quick-toggle
+        // card: one notification for the whole app while no session runs, so
+        // the shade can never fold the action buttons away behind a group.
+        val withActions = runCatching { SessionQuickToggle.applicable(this) }.getOrDefault(false)
+        val notif = SessionQuickToggle.build(this, withActions)
+        startForeground(
+            SessionQuickToggle.NOTIFICATION_ID,
+            notif,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+        )
+        foregroundCardShown = true
+    }
+
+    /**
+     * Re-render (or drop) the standby card in place.
+     *
+     * While a session runs the card is removed outright instead of degrading to
+     * a "自动悬浮层待机中" status line: the session has its own notification and a
+     * second, action-less line is pure noise. Dropping the foreground state is
+     * safe here because both services share one process and the session's own
+     * foreground service keeps it alive; on session end [renderStandby] is
+     * called again with actions and re-promotes this service.
+     */
+    private fun renderStandby(withActions: Boolean) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            main.post { renderStandby(withActions) }
+            return
         }
-        val notif = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.auto_overlay_watcher_notif))
-            .setSmallIcon(android.R.drawable.ic_menu_view)
-            .setOngoing(true)
-            // Join the quick-toggle group as a child: the standby toggle stays
-            // the group summary (its action buttons must stay visible), while
-            // this status line collapses underneath it.
-            .setGroup(SessionQuickToggle.GROUP_KEY)
-            .build()
-        startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        if (!withActions) {
+            // No actions to offer (session running, or MediaProjection mode):
+            // drop the card entirely instead of leaving an action-less
+            // "自动悬浮层待机中" line in the shade. Safe because the process is
+            // either kept alive by the session's own foreground service or the
+            // watcher stops itself shortly (MediaProjection).
+            if (foregroundCardShown) {
+                runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+                foregroundCardShown = false
+                LsfgLog.i(TAG, "standby card dropped")
+            }
+            return
+        }
+        runCatching {
+            val notif = SessionQuickToggle.build(this, withActions)
+            val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (foregroundCardShown) {
+                mgr.notify(SessionQuickToggle.NOTIFICATION_ID, notif)
+            } else {
+                startForeground(
+                    SessionQuickToggle.NOTIFICATION_ID,
+                    notif,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                )
+                foregroundCardShown = true
+            }
+        }.onFailure { LsfgLog.w(TAG, "standby notification render failed", it) }
     }
 
     companion object {
         private const val TAG = "AutoOverlayWatcher"
-        private const val CHANNEL_ID = "lsfg_auto_overlay"
-        private const val NOTIF_ID = 2001
         private const val POLL_INTERVAL_MS = 3000L
         private const val FIRST_DELAY_MS = 1500L
         private const val WINDOW_CHECK_INTERVAL_MS = 1000L

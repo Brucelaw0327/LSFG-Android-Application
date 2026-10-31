@@ -556,6 +556,23 @@ class LauncherDotOverlay(
         return dm.widthPixels to dm.heightPixels
     }
 
+    /**
+     * ICON_BUTTON mode parks the (icon-sized) window itself at (iconX, iconY),
+     * so the icon child sits at 0,0 inside it. Expanding to MATCH_PARENT moves
+     * the window origin to 0,0 while the child stays at 0,0 — which is why the
+     * dot visibly jumps to the top-left corner as soon as the panel opens.
+     * Translate the icon by its original screen position while the window is
+     * fullscreen so it appears to stay where the user touched it.
+     */
+    private fun syncIconOffsetToWindowState() {
+        if (entryMode != OverlayMode.ICON_BUTTON) return
+        val icon = iconButton ?: return
+        val lp = params
+        val fullscreen = lp != null && lp.width == WindowManager.LayoutParams.MATCH_PARENT
+        icon.translationX = if (fullscreen) iconX.toFloat() else 0f
+        icon.translationY = if (fullscreen) iconY.toFloat() else 0f
+    }
+
     private fun expandWindow() {
         val wm = hostWm ?: return
         val r = root ?: return
@@ -573,6 +590,7 @@ class LauncherDotOverlay(
         }
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "expandWindow failed", it) }
+        syncIconOffsetToWindowState()
     }
 
     private fun collapseWindowIfNeeded() {
@@ -595,6 +613,9 @@ class LauncherDotOverlay(
         panelContainer?.visibility = View.GONE
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "collapseWindowIfNeeded failed", it) }
+        // Window origin is back at (iconX, iconY) — drop the compensating
+        // offset, otherwise the dot would render off its parked position.
+        syncIconOffsetToWindowState()
     }
 
     private fun applyPanelProgress(panelView: View, p: Float) {

@@ -772,6 +772,21 @@ class SettingsDrawerOverlay(
         }
     }
 
+    /**
+     * Same fix as in [LauncherDotOverlay]: the collapsed ICON_BUTTON window is
+     * icon-sized and parked at (iconX, iconY); expanding moves the window origin
+     * to 0,0 and the icon child would jump to the top-left corner. Offset it by
+     * its parked position while the window is fullscreen.
+     */
+    private fun syncIconOffsetToWindowState() {
+        if (entryMode != OverlayMode.ICON_BUTTON) return
+        val icon = iconButton ?: return
+        val lp = params
+        val fullscreen = lp != null && lp.width == WindowManager.LayoutParams.MATCH_PARENT
+        icon.translationX = if (fullscreen) iconX.toFloat() else 0f
+        icon.translationY = if (fullscreen) iconY.toFloat() else 0f
+    }
+
     private fun expandWindow() {
         val wm = hostWindowManager ?: return
         val r = root ?: return
@@ -790,6 +805,7 @@ class SettingsDrawerOverlay(
         }
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "expandWindow failed", it) }
+        syncIconOffsetToWindowState()
     }
 
     private fun collapseWindowIfNeeded() {
@@ -812,6 +828,7 @@ class SettingsDrawerOverlay(
         panelContainer?.visibility = View.GONE
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "collapseWindowIfNeeded failed", it) }
+        syncIconOffsetToWindowState()
     }
 
     /**
