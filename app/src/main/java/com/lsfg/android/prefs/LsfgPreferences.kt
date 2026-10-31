@@ -103,7 +103,7 @@ enum class PacingPreset(val prefValue: String) {
 
     companion object {
         fun fromPref(value: String?): PacingPreset =
-            values().firstOrNull { it.prefValue == value } ?: BALANCED
+            values().firstOrNull { it.prefValue == value } ?: SMOOTH
     }
 }
 
@@ -150,7 +150,7 @@ class LsfgPreferences(ctx: Context) {
         lsfgEnabled = prefs.getBoolean(KEY_LSFG_ENABLED, true),
         multiplier = prefs.getInt(KEY_MULTIPLIER, 2).coerceIn(2, 8),
         flowScale = prefs.getFloat(KEY_FLOW_SCALE, 0.6f).coerceIn(0.25f, 1.0f),
-        performanceMode = prefs.getBoolean(KEY_PERF, true),
+        performanceMode = prefs.getBoolean(KEY_PERF, false),
         antiArtifacts = prefs.getBoolean(KEY_ANTI_ARTIFACTS, false),
         framegenFp16 = prefs.getBoolean(KEY_FRAMEGEN_FP16, false),
         targetPackage = prefs.getString(KEY_TARGET, null),
