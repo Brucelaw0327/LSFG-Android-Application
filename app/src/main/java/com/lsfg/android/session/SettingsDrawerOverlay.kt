@@ -1690,7 +1690,6 @@ class SettingsDrawerOverlay(
     // Compact wrap-layout that stays readable with 4-7 chips. Chips wrap into
     // a second line when the panel is narrow, which is the common case for
     // the in-session drawer on phones.
-    private enum class GpuMethodCategory { SCALING, ENHANCEMENT, SHARPEN_COLOR }
 
     private fun dp(v: Int): Int {
         return (v * ctx.resources.displayMetrics.density).toInt()

@@ -81,6 +81,10 @@ fun DllPickerScreen(nav: NavHostController) {
                 uri,
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
+        }.onFailure {
+            // Silent failure here meant the URI worked until reboot and then
+            // re-extraction mysteriously failed with "revoked SAF permission".
+            pickError = "Could not persist access to the selected file — re-pick it if extraction fails after a reboot."
         }
         val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0) else null

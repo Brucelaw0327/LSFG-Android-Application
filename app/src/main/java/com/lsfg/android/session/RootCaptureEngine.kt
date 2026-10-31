@@ -31,8 +31,6 @@ class RootCaptureEngine(private val ctx: Context) {
     private var metricsHandler: Handler? = null
     private var fpsPoller: Runnable? = null
     private var graphPoller: Runnable? = null
-    @Volatile private var fpsFrameCount: Long = 0
-    @Volatile private var graphFrameCount: Long = 0
     private var fpsWindowStartMs: Long = 0L
     private var graphWindowStartMs: Long = 0L
     private var graphLastGeneratedCount: Long = 0L
@@ -182,7 +180,6 @@ class RootCaptureEngine(private val ctx: Context) {
     fun stopFpsCounter() {
         fpsPoller?.let { metricsHandler?.removeCallbacks(it) }
         fpsPoller = null
-        fpsFrameCount = 0
         maybeQuitMetricsThread()
     }
 
@@ -226,7 +223,6 @@ class RootCaptureEngine(private val ctx: Context) {
     fun stopFrameGraph() {
         graphPoller?.let { metricsHandler?.removeCallbacks(it) }
         graphPoller = null
-        graphFrameCount = 0
         maybeQuitMetricsThread()
     }
 
@@ -271,8 +267,6 @@ class RootCaptureEngine(private val ctx: Context) {
 
     private val frameCallback = object : IShizukuFrameCallback.Stub() {
         override fun onFrame(buffer: HardwareBuffer, timestampNs: Long) {
-            fpsFrameCount++
-            graphFrameCount++
             try {
                 NativeBridge.pushFrame(buffer, timestampNs)
             } catch (t: Throwable) {

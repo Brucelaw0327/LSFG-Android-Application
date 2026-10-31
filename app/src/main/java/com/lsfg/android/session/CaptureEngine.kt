@@ -82,14 +82,10 @@ class CaptureEngine(
     private var fpsPoller: Runnable? = null
     private var graphPoller: Runnable? = null
 
-    @Volatile
-    private var fpsFrameCount: Long = 0
     private var fpsWindowStartMs: Long = 0L
 
     // Parallel counters for the graph poller — kept separate so the 1 Hz FPS
     // window and the 5 Hz graph window don't steal each other's deltas.
-    @Volatile
-    private var graphCapturedCount: Long = 0L
     private var graphWindowStartMs: Long = 0L
     private var graphLastGeneratedCount: Long = 0L
 
@@ -183,7 +179,6 @@ class CaptureEngine(
     fun stopFpsCounter() {
         fpsPoller?.let { fpsHandler?.removeCallbacks(it) }
         fpsPoller = null
-        fpsFrameCount = 0
         maybeQuitFpsThread()
     }
 
@@ -246,18 +241,9 @@ class CaptureEngine(
     fun stopFrameGraph() {
         graphPoller?.let { fpsHandler?.removeCallbacks(it) }
         graphPoller = null
-        graphCapturedCount = 0
         maybeQuitFpsThread()
     }
 
-    /**
-     * Called by the LSFG-mode ImageReader listener whenever a fresh capture frame
-     * arrives. Cheap atomic increment — no-op if the counter isn't running.
-     */
-    internal fun onCaptureFrameArrived() {
-        fpsFrameCount++
-        graphCapturedCount++
-    }
 
     // --- LSFG mode ---
     //
@@ -310,7 +296,6 @@ class CaptureEngine(
             // which is exactly what produces torso/character warping on fast pans.
             val img = runCatching { r.acquireNextImage() }.getOrNull() ?: return@setOnImageAvailableListener
             try {
-                onCaptureFrameArrived()
                 // Image can be closed by teardown between acquire and this
                 // access -> getHardwareBuffer throws IllegalStateException
                 // (observed 2026-09-07 12:23). Treat as a dropped frame.
@@ -446,6 +431,10 @@ class CaptureEngine(
     @Synchronized
     fun stop() {
         stopFpsCounter()
+        // Must also stop the 5 Hz graph poller: it shares the metrics
+        // HandlerThread, so leaving it running keeps the thread (and its JNI
+        // counter reads) alive for the whole process after the session ended.
+        stopFrameGraph()
         stopLsfgMode()
         virtualDisplay?.release()
         virtualDisplay = null

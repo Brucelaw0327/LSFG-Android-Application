@@ -99,6 +99,20 @@ fun HomeScreen(nav: NavHostController) {
     var showTutorialPrompt by remember { mutableStateOf(false) }
     var showOverlayPermDialog by remember { mutableStateOf(!Settings.canDrawOverlays(ctx)) }
 
+    // Reading resumeTick ties recomposition to ON_RESUME: the permission and
+    // session-state checks in this body must re-run when the user comes back
+    // from system settings (previously they stayed frozen until the process
+    // was restarted).
+    var resumeTick by remember { mutableStateOf(0) }
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) resumeTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
+
     // Notifications: the foreground-service notification is invisible on
     // Android 13+ unless POST_NOTIFICATIONS is granted at runtime, so ask
     // once when the home screen first appears (skip silently if granted or
@@ -358,9 +372,14 @@ fun HomeScreen(nav: NavHostController) {
         }
 
         // Hero session card with CTA
+        // Live session state: previously hardcoded to false, which made the
+        // Stop affordance unreachable and let a second START be sent while a
+        // session was already running.
+        @Suppress("UNUSED_EXPRESSION") resumeTick
+        val running = LsfgForegroundService.activeSessionTarget != null
         LsfgCard(accent = true) {
             SessionCTA(
-                running = false,
+                running = running,
                 enabled = canStart,
                 onStart = {
                     lastError = null

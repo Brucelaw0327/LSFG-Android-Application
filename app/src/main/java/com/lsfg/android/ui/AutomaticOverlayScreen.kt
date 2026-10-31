@@ -78,10 +78,23 @@ fun AutomaticOverlayScreen(nav: NavHostController) {
     val enabled = remember { mutableStateListOf<String>() }
     var query by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
+    // Re-evaluate a11y / permissions and (re)start the watcher when the user
+    // returns from system settings — previously this screen only evaluated
+    // once, so enabling the accessibility service had no effect until the
+    // process restarted.
+    var resumeTick by remember { mutableStateOf(0) }
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) resumeTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
     val a11yEnabled = PermissionsHelper.isAccessibilityServiceEnabled(ctx)
-    val captureSource = remember { LsfgPreferences(ctx).load().captureSource }
+    val captureSource = remember(resumeTick) { LsfgPreferences(ctx).load().captureSource }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(resumeTick) {
         AutoOverlayController.init(ctx.applicationContext)
         enabled.clear()
         enabled.addAll(prefs.getAutoEnabledApps())

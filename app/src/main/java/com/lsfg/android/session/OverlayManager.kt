@@ -6,12 +6,10 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Region
 import android.graphics.SurfaceTexture
-import com.lsfg.android.session.LsfgLog
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.DisplayMetrics
-import android.util.Log
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.Surface
@@ -148,14 +146,14 @@ class OverlayManager(private val ctx: Context) {
         val screenH = metrics.heightPixels
         overlayWidth = screenW
         overlayHeight = screenH
-        Log.i(TAG, "Showing overlay at ${screenW}x${screenH} targetRefresh=${requestedRefreshRateHz}Hz")
+        LsfgLog.i(TAG, "Showing overlay at ${screenW}x${screenH} targetRefresh=${requestedRefreshRateHz}Hz")
 
         val layoutType = if (useTrusted) {
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
         } else {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         }
-        Log.i(TAG, "Overlay host=${if (useTrusted) "a11y/TRUSTED" else "app/UNTRUSTED"}")
+        LsfgLog.i(TAG, "Overlay host=${if (useTrusted) "a11y/TRUSTED" else "app/UNTRUSTED"}")
 
         // No FLAG_NOT_TOUCHABLE: that flag, combined with TYPE_APPLICATION_OVERLAY, is
         // what triggers the Android 12+ 0.8-alpha clamp. Pass-through is handled by an
@@ -198,9 +196,9 @@ class OverlayManager(private val ctx: Context) {
                 val f = javaClass.getDeclaredField("privateFlags")
                 f.isAccessible = true
                 f.setInt(this, f.getInt(this) or 0x00080000)
-                Log.i("lsfg-vk-loop", "privateFlags EXCLUDE_FROM_SCREEN_CAPTURE applied")
+                LsfgLog.i("lsfg-vk-loop", "privateFlags EXCLUDE_FROM_SCREEN_CAPTURE applied")
             }.onFailure {
-                Log.d("lsfg-vk-loop", "privateFlags field unavailable: ${it.message}")
+                LsfgLog.d("lsfg-vk-loop", "privateFlags field unavailable: ${it.message}")
             }
         }
 
@@ -234,7 +232,7 @@ class OverlayManager(private val ctx: Context) {
                 producerSurface = s
                 syncOverlayGeometry()
                 requestMaxRefreshRate(s)
-                Log.i(TAG, "TextureView surface available ${width}x${height} valid=${s.isValid} hwAccel=${tex.isHardwareAccelerated}")
+                LsfgLog.i(TAG, "TextureView surface available ${width}x${height} valid=${s.isValid} hwAccel=${tex.isHardwareAccelerated}")
                 if (s.isValid) {
                     surfaceReadyListener?.invoke(s, overlayWidth, overlayHeight)
                 }
@@ -254,7 +252,7 @@ class OverlayManager(private val ctx: Context) {
                 syncOverlayGeometry()
                 if (s != null) {
                     requestMaxRefreshRate(s)
-                    Log.i(TAG, "TextureView size changed ${width}x${height}")
+                    LsfgLog.i(TAG, "TextureView size changed ${width}x${height}")
                     if (s.isValid) {
                         surfaceReadyListener?.invoke(s, overlayWidth, overlayHeight)
                     }
@@ -262,7 +260,7 @@ class OverlayManager(private val ctx: Context) {
             }
 
             override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-                Log.i(TAG, "TextureView surface destroyed")
+                LsfgLog.i(TAG, "TextureView surface destroyed")
                 stopFrameLoop()
                 surfaceLostListener?.invoke()
                 runCatching { producerSurface?.release() }
@@ -277,7 +275,7 @@ class OverlayManager(private val ctx: Context) {
             override fun onSurfaceTextureUpdated(st: SurfaceTexture) {
                 val n = ++surfaceTextureUpdateCount
                 if (n <= 30 || n % 60 == 0) {
-                    Log.d(TAG, "onSurfaceTextureUpdated #$n")
+                    LsfgLog.d(TAG, "onSurfaceTextureUpdated #$n")
                 }
             }
         }
@@ -435,7 +433,7 @@ class OverlayManager(private val ctx: Context) {
             val setTouchableRegion = rootSc.javaClass
                 .getMethod("setTouchableRegion", Region::class.java)
             setTouchableRegion.invoke(rootSc, Region())
-        }.onFailure { Log.w(TAG, "reassert setTouchableRegion(empty) failed", it) }
+        }.onFailure { LsfgLog.w(TAG, "reassert setTouchableRegion(empty) failed", it) }
     }
 
     /**
@@ -501,7 +499,7 @@ class OverlayManager(private val ctx: Context) {
             lp.x = if (hidden) -overlayWidth else 0
             runCatching { hostWindowManager?.updateViewLayout(r, lp) }
                 .onSuccess { reassertEmptyTouchableRegion(r) }
-                .onFailure { Log.w(TAG, "setWindowHidden updateViewLayout failed", it) }
+                .onFailure { LsfgLog.w(TAG, "setWindowHidden updateViewLayout failed", it) }
         }
     }
 
@@ -586,14 +584,14 @@ class OverlayManager(private val ctx: Context) {
             runCatching {
                 val rootSc = host.rootSurfaceControl
                 if (rootSc == null) {
-                    Log.w(TAG, "rootSurfaceControl is null; window may not be attached yet")
+                    LsfgLog.w(TAG, "rootSurfaceControl is null; window may not be attached yet")
                 } else {
                     val setTouchableRegion = rootSc.javaClass
                         .getMethod("setTouchableRegion", Region::class.java)
                     setTouchableRegion.invoke(rootSc, Region())
-                    Log.i(TAG, "Empty touchable region applied (api=${Build.VERSION.SDK_INT})")
+                    LsfgLog.i(TAG, "Empty touchable region applied (api=${Build.VERSION.SDK_INT})")
                 }
-            }.onFailure { Log.w(TAG, "setTouchableRegion(empty) failed", it) }
+            }.onFailure { LsfgLog.w(TAG, "setTouchableRegion(empty) failed", it) }
         }
 
         if (host.isAttachedToWindow) {
@@ -613,7 +611,7 @@ class OverlayManager(private val ctx: Context) {
     private fun removeEmptyTouchableRegion(host: View, listener: Any) {
         if (listener is View.OnAttachStateChangeListener) {
             runCatching { host.removeOnAttachStateChangeListener(listener) }
-                .onFailure { Log.w(TAG, "removeOnAttachStateChangeListener failed", it) }
+                .onFailure { LsfgLog.w(TAG, "removeOnAttachStateChangeListener failed", it) }
         }
     }
 
@@ -655,9 +653,9 @@ class OverlayManager(private val ctx: Context) {
             val addMethod = host.viewTreeObserver.javaClass
                 .getMethod("addOnComputeInternalInsetsListener", listenerCls)
             addMethod.invoke(host.viewTreeObserver, proxy)
-            Log.i(TAG, "OnComputeInternalInsetsListener pass-through installed")
+            LsfgLog.i(TAG, "OnComputeInternalInsetsListener pass-through installed")
             proxy
-        }.onFailure { Log.w(TAG, "installEmptyInternalInsets failed", it) }.getOrNull()
+        }.onFailure { LsfgLog.w(TAG, "installEmptyInternalInsets failed", it) }.getOrNull()
     }
 
     private fun removeEmptyInternalInsets(host: View, listener: Any) {
@@ -666,7 +664,7 @@ class OverlayManager(private val ctx: Context) {
             val removeMethod = host.viewTreeObserver.javaClass
                 .getMethod("removeOnComputeInternalInsetsListener", listenerCls)
             removeMethod.invoke(host.viewTreeObserver, listener)
-        }.onFailure { Log.w(TAG, "removeOnComputeInternalInsetsListener failed", it) }
+        }.onFailure { LsfgLog.w(TAG, "removeOnComputeInternalInsetsListener failed", it) }
     }
 
     private fun requestMaxRefreshRate(surface: Surface) {
@@ -680,7 +678,7 @@ class OverlayManager(private val ctx: Context) {
                 Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
                 Surface.CHANGE_FRAME_RATE_ALWAYS,
             )
-        }.onFailure { Log.w(TAG, "setFrameRate(${requestedRefreshRateHz}Hz) failed", it) }
+        }.onFailure { LsfgLog.w(TAG, "setFrameRate(${requestedRefreshRateHz}Hz) failed", it) }
     }
 
     private fun syncOverlayGeometry() {
@@ -712,11 +710,11 @@ class OverlayManager(private val ctx: Context) {
             if (windowHiddenOffscreen) lp.x = -newW
             runCatching { wm.updateViewLayout(r, lp) }
                 .onSuccess { reassertEmptyTouchableRegion(r) }
-                .onFailure { Log.w(TAG, "updateViewLayout(${newW}x${newH}) failed", it) }
+                .onFailure { LsfgLog.w(TAG, "updateViewLayout(${newW}x${newH}) failed", it) }
         }
         runCatching { textureView?.surfaceTexture?.setDefaultBufferSize(newW, newH) }
-            .onFailure { Log.w(TAG, "setDefaultBufferSize(${newW}x${newH}) failed", it) }
-        Log.i(TAG, "Overlay geometry synced to ${newW}x${newH}")
+            .onFailure { LsfgLog.w(TAG, "setDefaultBufferSize(${newW}x${newH}) failed", it) }
+        LsfgLog.i(TAG, "Overlay geometry synced to ${newW}x${newH}")
     }
 
     /**
@@ -758,7 +756,7 @@ class OverlayManager(private val ctx: Context) {
                                 .also { it.isAccessible = true }
                                 .get(viewRootImpl) as? SurfaceControl
                         }.getOrNull()?.let {
-                            Log.d("lsfg-vk-loop", "installSkipScreenshot: SurfaceControl via ${cls!!.simpleName}.mSurfaceControl")
+                            LsfgLog.d("lsfg-vk-loop", "installSkipScreenshot: SurfaceControl via ${cls!!.simpleName}.mSurfaceControl")
                             return@run it
                         }
                         cls = cls.superclass
@@ -776,14 +774,14 @@ class OverlayManager(private val ctx: Context) {
                                     field.isAccessible = true
                                     field.get(viewRootImpl) as? SurfaceControl
                                 }.getOrNull()?.let { found ->
-                                    Log.i("lsfg-vk-loop", "installSkipScreenshot: SurfaceControl via type-search: $fieldId")
+                                    LsfgLog.i("lsfg-vk-loop", "installSkipScreenshot: SurfaceControl via type-search: $fieldId")
                                     return@run found
                                 }
                             }
                         }
                         typeCls = typeCls.superclass
                     }
-                    Log.i("lsfg-vk-loop", "installSkipScreenshot: type-search SC-typed fields: $scFieldsFound")
+                    LsfgLog.i("lsfg-vk-loop", "installSkipScreenshot: type-search SC-typed fields: $scFieldsFound")
 
                     // Fourth fallback: Android 12+ BLAST pipeline — ViewRootImpl stores a
                     // BLASTBufferQueue which owns the window's SurfaceControl internally.
@@ -808,7 +806,7 @@ class OverlayManager(private val ctx: Context) {
                                                 bbq.javaClass.getMethod(methodName)
                                                     .invoke(bbq) as? SurfaceControl
                                             }.getOrNull()?.let { found ->
-                                                Log.i("lsfg-vk-loop",
+                                                LsfgLog.i("lsfg-vk-loop",
                                                     "installSkipScreenshot: SurfaceControl via " +
                                                     "BLASTBufferQueue.${field.name}.$methodName()")
                                                 return@run found
@@ -838,7 +836,7 @@ class OverlayManager(private val ctx: Context) {
                         }
                         dumpCls = dumpCls.superclass
                     }
-                    Log.i("lsfg-vk-loop", "installSkipScreenshot: related fields dump: $relatedFields")
+                    LsfgLog.i("lsfg-vk-loop", "installSkipScreenshot: related fields dump: $relatedFields")
                     error("getSurfaceControl() missing and no SurfaceControl field found in class hierarchy")
                 }
 
@@ -848,7 +846,7 @@ class OverlayManager(private val ctx: Context) {
                     sc.javaClass.getDeclaredField("mNativeObject")
                         .also { it.isAccessible = true }.getLong(sc)
                 }.getOrDefault(-1L)
-                Log.i("lsfg-vk-loop", "installSkipScreenshot: SurfaceControl nativeHandle=0x${nativeHandle.toString(16)}")
+                LsfgLog.i("lsfg-vk-loop", "installSkipScreenshot: SurfaceControl nativeHandle=0x${nativeHandle.toString(16)}")
                 if (nativeHandle == 0L) {
                     error("SurfaceControl native handle is 0 — relayoutWindow not yet run; onSurfaceTextureAvailable will retry")
                 }
@@ -863,9 +861,9 @@ class OverlayManager(private val ctx: Context) {
                 )
                 method.invoke(txn, sc, true)
                 txn.apply()
-                Log.i("lsfg-vk-loop", "installSkipScreenshot: OK — overlay excluded from MediaProjection")
+                LsfgLog.i("lsfg-vk-loop", "installSkipScreenshot: OK — overlay excluded from MediaProjection")
             }.onFailure {
-                Log.w("lsfg-vk-loop", "installSkipScreenshot FAILED (${it.javaClass.simpleName}): ${it.message}" +
+                LsfgLog.w("lsfg-vk-loop", "installSkipScreenshot FAILED (${it.javaClass.simpleName}): ${it.message}" +
                            " — feedback loop may occur")
             }
         }

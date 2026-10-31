@@ -17,7 +17,6 @@ object NativeBridge {
     }
 
     /** Returns the liblsfg-android.so build version string. Used as a cheap sanity check. */
-    external fun nativeVersion(): String
 
     /**
      * Installs native signal handlers (SIGSEGV/SIGABRT/SIGBUS/SIGFPE/SIGILL) that write a

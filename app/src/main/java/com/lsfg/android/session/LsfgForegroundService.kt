@@ -322,6 +322,12 @@ class LsfgForegroundService : Service() {
                         else -> setOverlayForTarget(false)
                     }
                 }
+                // Same self-heal the launcher dot has: if the drawer's window
+                // ever gets stuck at MATCH_PARENT with the panel closed, it
+                // silently eats every touch on screen — collapse it here.
+                if (drawer?.isExpanded() == false) {
+                    runCatching { drawer?.forceCollapseIfIdle() }
+                }
                 mainHandler.postDelayed(this, TARGET_ALIVE_POLL_MS)
             }
         }
@@ -783,6 +789,17 @@ class LsfgForegroundService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            else -> {
+                // START_STICKY restart after process death delivers a null
+                // intent. There is no session to run, but a restarted
+                // foreground service must call startForeground within its
+                // timeout or the system raises
+                // ForegroundServiceDidNotStartInTimeException. Post the
+                // notification, then stop cleanly.
+                startForeground(NOTIF_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                stopSelf()
+                return START_NOT_STICKY
+            }
         }
         return START_STICKY
     }
@@ -934,6 +951,12 @@ class LsfgForegroundService : Service() {
         if (overlay != null || drawer != null || capture != null ||
             shizukuCapture != null || rootCapture != null) {
             LsfgLog.i(TAG, "handleStart: previous session still active — tearing it down first")
+            // The previous pass's guards (source-fps / output / HDR) must be
+            // torn down with it: start*() re-arms fresh ones, and two parallel
+            // guard sets would double-fire stopSelf.
+            cancelSourceFpsGuard()
+            cancelOutputWatchdog()
+            cancelHdrGuard()
             stopTargetAlivePoller()
                 capture?.stop()
             capture = null

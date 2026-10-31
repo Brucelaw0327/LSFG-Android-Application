@@ -53,8 +53,16 @@ private val shared: MutableStateFlow<LsfgConfig> = MutableStateFlow(
     )
 )
 
+private var seeded = false
+
 fun produceConfigState(prefs: LsfgPreferences): StateFlow<LsfgConfig> {
-    shared.value = prefs.load()
+    // Seed once. Writing on every recomposition meant a 29-field SharedPreferences
+    // read per recomposition (HomeScreen recomposes on scroll); the preference
+    // listener installed by bindConfigState keeps `shared` current afterwards.
+    if (!seeded) {
+        shared.value = prefs.load()
+        seeded = true
+    }
     return shared
 }
 

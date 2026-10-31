@@ -331,61 +331,10 @@ private fun TailNote() {
 // Helpers — Advanced expander + sub-section header
 // ----------------------------------------------------------------------------------------
 
-@Composable
-private fun AdvancedSection(
-    label: String,
-    initiallyExpanded: Boolean = false,
-    content: @Composable () -> Unit,
-) {
-    var expanded by remember { mutableStateOf(initiallyExpanded) }
-    Spacer(Modifier.height(8.dp))
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { expanded = !expanded }
-            .padding(vertical = 10.dp, horizontal = 4.dp),
-    ) {
-        Text(
-            text = label.uppercase(),
-            style = MaterialTheme.typography.labelSmall,
-            color = LsfgPrimary,
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            imageVector = Icons.Filled.ExpandMore,
-            contentDescription = null,
-            tint = LsfgPrimary,
-            modifier = Modifier
-                .size(18.dp)
-                .rotate(if (expanded) 180f else 0f),
-        )
-    }
-    AnimatedVisibility(
-        visible = expanded,
-        enter = fadeIn(tween(160)) + expandVertically(tween(180)),
-        exit = fadeOut(tween(120)) + shrinkVertically(tween(160)),
-    ) {
-        Column { content() }
-    }
-}
-
-@Composable
-private fun SubSectionHeader(text: String) {
-    Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-    )
-}
-
 // ----------------------------------------------------------------------------------------
 // Selectors shared across screens
 // ----------------------------------------------------------------------------------------
 
-private enum class GpuMethodCategory { SCALING, ENHANCEMENT, SHARPEN_COLOR }
 
 @Composable
 private fun OverlayModeSelector(

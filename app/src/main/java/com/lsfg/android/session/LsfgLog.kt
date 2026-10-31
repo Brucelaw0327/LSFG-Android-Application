@@ -41,6 +41,11 @@ object LsfgLog {
         append('I', tag, msg, null)
     }
 
+    fun d(tag: String, msg: String) {
+        Log.d(tag, msg)
+        append('D', tag, msg, null)
+    }
+
     fun w(tag: String, msg: String, tr: Throwable? = null) {
         if (tr != null) Log.w(tag, msg, tr) else Log.w(tag, msg)
         append('W', tag, msg, tr)
