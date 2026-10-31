@@ -241,9 +241,18 @@ class LsfgPreferences(ctx: Context) {
     fun setFpsGuardEnabled(value: Boolean) = prefs.edit().putBoolean(KEY_FPS_GUARD, value).apply()
     fun setFpsGuardThreshold(value: Int) = prefs.edit().putInt(KEY_FPS_GUARD_THRESHOLD, value).apply()
 
+    // Overlay entry-icon position (ICON_BUTTON mode). -1 = never dragged.
+    // Stored outside [LsfgConfig]: it is UI state, not framegen configuration.
+    fun getOverlayIconX(): Int = prefs.getInt(KEY_ICON_POS_X, -1)
+    fun getOverlayIconY(): Int = prefs.getInt(KEY_ICON_POS_Y, -1)
+    fun setOverlayIconPos(x: Int, y: Int) =
+        prefs.edit().putInt(KEY_ICON_POS_X, x).putInt(KEY_ICON_POS_Y, y).apply()
+
     companion object {
         /** Shared with [ConfigRepository], which watches this file for changes. */
         const val FILE = "lsfg_prefs"
+        private const val KEY_ICON_POS_X = "overlay_icon_x"
+        private const val KEY_ICON_POS_Y = "overlay_icon_y"
         private const val KEY_DLL_URI = "dll_uri"
         private const val KEY_DLL_NAME = "dll_name"
         private const val KEY_SHADERS_READY = "shaders_ready"

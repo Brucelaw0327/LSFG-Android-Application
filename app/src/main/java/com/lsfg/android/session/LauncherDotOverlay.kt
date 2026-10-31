@@ -170,6 +170,17 @@ class LauncherDotOverlay(
         // Icon defaults: stuck to the right edge, vertically centred.
         iconX = (screenW - iconSizePx - dp(8)).coerceAtLeast(0)
         iconY = ((screenH - iconSizePx) / 2).coerceAtLeast(0)
+        // Restore a dragged position: the dot instance is recreated on every
+        // hide/show cycle (park, foreground change), and without persistence
+        // the icon jumped back to the right edge each time.
+        if (entryMode == OverlayMode.ICON_BUTTON) {
+            val sx = LsfgPreferences(ctx).getOverlayIconX()
+            val sy = LsfgPreferences(ctx).getOverlayIconY()
+            if (sx >= 0 && sy >= 0) {
+                iconX = sx.coerceIn(0, (screenW - iconSizePx).coerceAtLeast(0))
+                iconY = sy.coerceIn(0, (screenH - iconSizePx).coerceAtLeast(0))
+            }
+        }
 
         val layoutType = if (a11y != null) {
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
@@ -950,6 +961,7 @@ class LauncherDotOverlay(
                         val nearLeft = centerX < screenW / 2
                         iconX = if (nearLeft) dp(8) else (screenW - iconSizePx - dp(8)).coerceAtLeast(0)
                         iconY = iconY.coerceIn(0, (screenH - iconSizePx).coerceAtLeast(0))
+                        LsfgPreferences(ctx).setOverlayIconPos(iconX, iconY)
                         // Pick the closer edge for panel slide direction.
                         val distLeft = centerX
                         val distRight = screenW - centerX

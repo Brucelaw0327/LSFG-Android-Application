@@ -196,8 +196,19 @@ class SettingsDrawerOverlay(
         panelMarginPx = dp(12)
         drawerEdge = prefs.drawerEdge
         // Initial icon position: stick it to the right edge, vertically centred.
-        iconX = screenW - iconSizePx - dp(8)
-        iconY = (screenH - iconSizePx) / 2
+        // Icon position: restore a dragged position if one was saved. show()
+        // used to reset it to the right edge on EVERY invocation — which made
+        // the icon jump back to its initial spot after every touch-pause
+        // hide/show cycle. Coerce in case the display size changed.
+        val prefStore = LsfgPreferences(ctx)
+        val storedIconX = prefStore.getOverlayIconX()
+        val storedIconY = prefStore.getOverlayIconY()
+        iconX = if (entryMode == OverlayMode.ICON_BUTTON && storedIconX >= 0 && storedIconY >= 0)
+            storedIconX.coerceIn(0, (screenW - iconSizePx).coerceAtLeast(0))
+        else screenW - iconSizePx - dp(8)
+        iconY = if (entryMode == OverlayMode.ICON_BUTTON && storedIconY >= 0)
+            storedIconY.coerceIn(0, (screenH - iconSizePx).coerceAtLeast(0))
+        else (screenH - iconSizePx) / 2
 
         val layoutType = if (useTrusted) {
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
@@ -1839,6 +1850,7 @@ class SettingsDrawerOverlay(
                         val nearLeft = centerX < screenW / 2
                         iconX = if (nearLeft) dp(8) else (screenW - iconSizePx - dp(8)).coerceAtLeast(0)
                         iconY = iconY.coerceIn(0, (screenH - iconSizePx).coerceAtLeast(0))
+                        LsfgPreferences(ctx).setOverlayIconPos(iconX, iconY)
                         // Pick the closer edge (left/right vs top/bottom) for panel slide direction.
                         val distLeft = centerX
                         val distRight = screenW - centerX
