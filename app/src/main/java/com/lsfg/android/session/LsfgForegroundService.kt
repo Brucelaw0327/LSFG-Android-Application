@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.hardware.display.DisplayManager
@@ -855,6 +856,7 @@ class LsfgForegroundService : Service() {
     override fun onDestroy() {
         LsfgLog.i(TAG, "onDestroy — tearing down service (caller triggered stopSelf or system killed us)")
         super.onDestroy()
+        unregisterSessionPrefsListener()
         AutoOverlayController.setSessionWatcher(null)
         autoStopPending?.let { mainHandler.removeCallbacks(it) }
         autoStopPending = null
@@ -958,6 +960,7 @@ class LsfgForegroundService : Service() {
             cancelOutputWatchdog()
             cancelHdrGuard()
             stopTargetAlivePoller()
+            unregisterSessionPrefsListener()
                 capture?.stop()
             capture = null
             shizukuCapture?.stop()
@@ -1382,35 +1385,11 @@ class LsfgForegroundService : Service() {
         }
         dr.setFpsCounterListener { enabled ->
             LsfgLog.i(TAG, "fpsCounter=$enabled")
-            if (enabled) {
-                when {
-                    captureSource == CaptureSource.SHIZUKU -> shizukuCapture?.startFpsCounter()
-                    captureSource == CaptureSource.ROOT -> rootCapture?.startFpsCounter()
-                    else -> capture?.startFpsCounter()
-                }
-                overlay?.setFpsVisible(true)
-            } else {
-                capture?.stopFpsCounter()
-                shizukuCapture?.stopFpsCounter()
-                rootCapture?.stopFpsCounter()
-                overlay?.setFpsVisible(false)
-            }
+            applyFpsCounterLive(enabled)
         }
         dr.setFrameGraphListener { enabled ->
             LsfgLog.i(TAG, "frameGraph=$enabled")
-            if (enabled) {
-                when {
-                    captureSource == CaptureSource.SHIZUKU -> shizukuCapture?.startFrameGraph()
-                    captureSource == CaptureSource.ROOT -> rootCapture?.startFrameGraph()
-                    else -> capture?.startFrameGraph()
-                }
-                overlay?.setFrameGraphVisible(true)
-            } else {
-                capture?.stopFrameGraph()
-                shizukuCapture?.stopFrameGraph()
-                rootCapture?.stopFrameGraph()
-                overlay?.setFrameGraphVisible(false)
-            }
+            applyFrameGraphLive(enabled)
         }
         dr.setInitialFpsCounterState(effectiveFpsCounter)
         dr.setInitialFrameGraphState(initialFrameGraph)
@@ -1419,6 +1398,89 @@ class LsfgForegroundService : Service() {
         }
         dr.show()
         drawer = dr
+
+        // Bridge for config writes made outside the in-game drawer (setup
+        // screens). The drawer applies its toggles through the direct
+        // listeners above; UI-screen writes used to require a session
+        // restart. Only the live-applicable parameters are handled here —
+        // multiplier / flow scale / performance still go through reinit.
+        lastAppliedFpsCounter = effectiveFpsCounter
+        lastAppliedFrameGraph = initialFrameGraph
+        lastAppliedAntiArtifacts = LsfgPreferences(this).load().antiArtifacts
+        registerSessionPrefsListener()
+    }
+
+    /** Applies an FPS-counter toggle from any writer to the live session. */
+    private fun applyFpsCounterLive(enabled: Boolean) {
+        val source = LsfgPreferences(this).load().captureSource
+        if (enabled) {
+            when {
+                source == CaptureSource.SHIZUKU -> shizukuCapture?.startFpsCounter()
+                source == CaptureSource.ROOT -> rootCapture?.startFpsCounter()
+                else -> capture?.startFpsCounter()
+            }
+            overlay?.setFpsVisible(true)
+        } else {
+            capture?.stopFpsCounter()
+            shizukuCapture?.stopFpsCounter()
+            rootCapture?.stopFpsCounter()
+            overlay?.setFpsVisible(false)
+        }
+    }
+
+    /** Applies a frame-graph toggle from any writer to the live session. */
+    private fun applyFrameGraphLive(enabled: Boolean) {
+        val source = LsfgPreferences(this).load().captureSource
+        if (enabled) {
+            when {
+                source == CaptureSource.SHIZUKU -> shizukuCapture?.startFrameGraph()
+                source == CaptureSource.ROOT -> rootCapture?.startFrameGraph()
+                else -> capture?.startFrameGraph()
+            }
+            overlay?.setFrameGraphVisible(true)
+        } else {
+            capture?.stopFrameGraph()
+            shizukuCapture?.stopFrameGraph()
+            rootCapture?.stopFrameGraph()
+            overlay?.setFrameGraphVisible(false)
+        }
+    }
+
+    // Listener is held strongly: SharedPreferences stores listeners weakly.
+    private var sessionPrefsListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
+    private var lastAppliedFpsCounter: Boolean = false
+    private var lastAppliedFrameGraph: Boolean = false
+    private var lastAppliedAntiArtifacts: Boolean = false
+
+    private fun registerSessionPrefsListener() {
+        if (sessionPrefsListener != null) return
+        val l = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            if (shuttingDown) return@OnSharedPreferenceChangeListener
+            val cfg = LsfgPreferences(this).load()
+            if (cfg.fpsCounterEnabled != lastAppliedFpsCounter) {
+                lastAppliedFpsCounter = cfg.fpsCounterEnabled
+                applyFpsCounterLive(cfg.fpsCounterEnabled)
+            }
+            if (cfg.frameGraphEnabled != lastAppliedFrameGraph) {
+                lastAppliedFrameGraph = cfg.frameGraphEnabled
+                applyFrameGraphLive(cfg.frameGraphEnabled)
+            }
+            if (cfg.antiArtifacts != lastAppliedAntiArtifacts) {
+                lastAppliedAntiArtifacts = cfg.antiArtifacts
+                NativeBridge.setAntiArtifacts(cfg.antiArtifacts)
+            }
+        }
+        getSharedPreferences(LsfgPreferences.FILE, Context.MODE_PRIVATE)
+            .registerOnSharedPreferenceChangeListener(l)
+        sessionPrefsListener = l
+    }
+
+    private fun unregisterSessionPrefsListener() {
+        sessionPrefsListener?.let {
+            getSharedPreferences(LsfgPreferences.FILE, Context.MODE_PRIVATE)
+                .unregisterOnSharedPreferenceChangeListener(it)
+        }
+        sessionPrefsListener = null
     }
 
     /**

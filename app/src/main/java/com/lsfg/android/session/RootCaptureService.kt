@@ -88,8 +88,10 @@ class RootCaptureService : RootService() {
                             }
                         }
                     }
-                } catch (_: Exception) {
-                    // getevent unavailable - isTouchDown() fails open (reports up)
+                } catch (e: Exception) {
+                    // getevent unavailable - isTouchDown() fails open (reports up).
+                    // Log once: without this, pauseOnTouch silently never works.
+                    Log.w(TAG, "touch monitor stream ended/failed", e)
                 }
             }.apply { isDaemon = true; name = "lsfg-touch-monitor"; start() }
         }

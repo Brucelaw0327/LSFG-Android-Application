@@ -39,6 +39,7 @@ class AutoOverlayWatcherService : Service() {
     @Volatile private var lastFed: String? = null
     private var mpStrikes = 0
     private var smallWindowStrikes = 0
+    private var probeFailureLogged = false
 
     /** True while our notification id is held as a foreground notification. */
     private var foregroundCardShown = false
@@ -56,7 +57,15 @@ class AutoOverlayWatcherService : Service() {
         pollThread = HandlerThread("lsfg-auto-overlay").also { it.start() }
         pollHandler = Handler(pollThread!!.looper)
         AutoOverlayController.setForegroundRefreshHook { done ->
-            pollHandler?.post {
+            val h = pollHandler
+            if (h == null) {
+                // Poller thread is down (service being torn down) — answer
+                // immediately or the broadcast receiver sits out its 10 s
+                // ANR window waiting for a callback that never comes.
+                main.post { done(null) }
+                return@setForegroundRefreshHook
+            }
+            h.post {
                 val pkg = pollOnce(force = true)
                 main.post { done(pkg) }
             }
@@ -156,7 +165,14 @@ class AutoOverlayWatcherService : Service() {
         if (pkg != null && (force || pkg != lastFed)) {
             if (pkg != lastFed) LsfgLog.i(TAG, "foreground -> $pkg")
             lastFed = pkg
+            probeFailureLogged = false
             main.post { AutoOverlayController.onForegroundPackage(appCtx, pkg) }
+        } else if (pkg == null && !probeFailureLogged) {
+            // Log the transition into probe-failure once, not every 3 s: this
+            // is the "launcher dot never appears" failure mode that used to be
+            // completely invisible in lsfg.log.
+            probeFailureLogged = true
+            LsfgLog.w(TAG, "foreground probe returned null - launcher dot / auto-start disabled until the backend recovers")
         }
         return pkg
     }
