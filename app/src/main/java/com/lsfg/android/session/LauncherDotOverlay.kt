@@ -332,11 +332,6 @@ class LauncherDotOverlay(
         Log.i(TAG, "Launcher relayout for ${newW}x${newH} mode=$entryMode")
     }
 
-    /** Programmatically close the drawer (used after Activate / Disable / Close). */
-    fun collapse() {
-        animateTo(0f)
-    }
-
     private fun buildPanelHost(): View {
         val pkg = targetPackageProvider() ?: ""
         return LauncherSheetView.build(

@@ -1815,17 +1815,6 @@ class LsfgForegroundService : Service() {
             .onFailure { LsfgLog.e(TAG, "Launching $pkg failed", it) }
     }
 
-    private fun startShizukuMetrics(
-        engine: ShizukuCaptureEngine?,
-        targetPackage: String?,
-        width: Int,
-        height: Int,
-        cfg: com.lsfg.android.prefs.LsfgConfig,
-    ) {
-        if (engine == null || targetPackage == null) return
-        engine.startMetricsOnly(targetPackage, width, height, maxCaptureFps(cfg))
-    }
-
     private fun startShizukuVideo(
         engine: ShizukuCaptureEngine?,
         targetPackage: String?,

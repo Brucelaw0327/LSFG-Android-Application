@@ -1,7 +1,5 @@
 package com.lsfg.android.ui
 
-import android.content.Context
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.util.LruCache
 import androidx.compose.runtime.Composable
@@ -53,10 +51,3 @@ fun rememberAppIconPainter(packageName: String, sizePx: Int): BitmapPainter? {
     }
     return painter
 }
-
-fun clearAppIconCache() {
-    iconCache.evictAll()
-}
-
-@Suppress("unused")
-fun appIconPackageManager(ctx: Context): PackageManager = ctx.packageManager

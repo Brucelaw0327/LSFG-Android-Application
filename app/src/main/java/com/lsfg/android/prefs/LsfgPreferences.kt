@@ -329,8 +329,6 @@ class LsfgPreferences(ctx: Context) {
     fun setNpuUpscaleFactor(value: Int) = prefs.edit().putInt(KEY_NPU_UPSCALE, value.coerceIn(1, 2)).apply()
     fun setNpuAmount(value: Float) = prefs.edit().putFloat(KEY_NPU_AMOUNT, value.coerceIn(0f, 1f)).apply()
     fun setNpuRadius(value: Float) = prefs.edit().putFloat(KEY_NPU_RADIUS, value.coerceIn(0.5f, 2.0f)).apply()
-    fun setNpuThreshold(value: Float) = prefs.edit().putFloat(KEY_NPU_THRESHOLD, value.coerceIn(0f, 1f)).apply()
-    fun setNpuFp16(value: Boolean) = prefs.edit().putBoolean(KEY_NPU_FP16, value).apply()
     fun setCpuPostProcessingEnabled(value: Boolean) = prefs.edit().putBoolean(KEY_CPU_POST, value).apply()
     fun setCpuPostProcessingPreset(value: CpuPostProcessingPreset) = prefs.edit()
         .putString(KEY_CPU_PRESET, value.prefValue)

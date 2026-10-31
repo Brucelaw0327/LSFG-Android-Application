@@ -94,11 +94,6 @@ object BenchmarkController {
     /** Live-reading state for UI bindings. */
     fun currentState(): State = state.get()
 
-    /** True while a benchmark is actively collecting samples. Used by the
-     *  service to gate behaviour (e.g. don't allow the drawer to mutate prefs
-     *  mid-run). */
-    fun isRunning(): Boolean = state.get() is State.Running
-
     /**
      * Start the 3-run benchmark. Must be called from a thread other than the
      * Main looper, OR pass [forceWorkerThread]=true to launch a worker. The
