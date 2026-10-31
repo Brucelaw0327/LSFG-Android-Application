@@ -92,6 +92,9 @@ class LauncherDotOverlay(
     /** 0 = collapsed, 1 = fully expanded. */
     private var progress: Float = 0f
     private var expanded: Boolean = false
+    /** True while the panel is closing: the icon stays invisible until the
+     *  window has physically shrunk back to its parked size. */
+    private var suppressIconFade: Boolean = false
     private var dragActive: Boolean = false
     private var dragStartX: Float = 0f
     private var dragStartY: Float = 0f
@@ -288,6 +291,7 @@ class LauncherDotOverlay(
         hostWm = null
         expanded = false
         progress = 0f
+        suppressIconFade = false
     }
 
     private fun registerDisplayListener() {
@@ -472,7 +476,13 @@ class LauncherDotOverlay(
         }
         val entryAlpha = (1f - p).coerceIn(0f, 1f)
         handleView?.alpha = entryAlpha
-        iconButton?.alpha = entryAlpha
+        // While closing, keep the icon invisible until the window has actually
+        // shrunk back. Between the resize request and the relayout the window
+        // geometry and the icon offset are necessarily out of sync for a frame
+        // or two, and any frame drawn in that window shows the dot at the wrong
+        // corner ("dot flies in from the top-left"). Hiding it for those frames
+        // is deterministic, unlike trying to keep the two in lockstep.
+        iconButton?.alpha = if (suppressIconFade) 0f else entryAlpha
         expanded = p >= 0.99f
         if (entryMode == OverlayMode.DRAWER) {
             if (p > 0f && wasZero) {
@@ -498,6 +508,7 @@ class LauncherDotOverlay(
             addUpdateListener { setProgress(it.animatedValue as Float) }
         }
         settleAnimator = anim
+        if (target == 0f) suppressIconFade = true
         anim.start()
         if (target == 0f) {
             anim.doOnEnd {
@@ -615,6 +626,7 @@ class LauncherDotOverlay(
                 if (laidOutFullscreen == paramsFullscreen) {
                     v.removeOnLayoutChangeListener(this)
                     syncIconOffsetToWindowState()
+                    revealIconIfCollapsed()
                 }
             }
         }
@@ -623,7 +635,17 @@ class LauncherDotOverlay(
         host.postDelayed({
             host.removeOnLayoutChangeListener(listener)
             syncIconOffsetToWindowState()
+            revealIconIfCollapsed()
         }, deadlineMs)
+    }
+
+    /** Fades the floating icon back in once the window is parked again. */
+    private fun revealIconIfCollapsed() {
+        if (!suppressIconFade) return
+        val lp = params ?: return
+        if (lp.width == WindowManager.LayoutParams.MATCH_PARENT) return
+        suppressIconFade = false
+        iconButton?.animate()?.alpha(1f)?.setDuration(90L)?.start()
     }
 
     private fun collapseWindowIfNeeded() {

@@ -97,6 +97,9 @@ class SettingsDrawerOverlay(
     /** 0 = collapsed, 1 = fully expanded. During drag this tracks the finger. */
     private var progress: Float = 0f
     @Volatile private var expanded: Boolean = false
+    /** True while the drawer is closing: keep the icon hidden until the window
+     *  has physically shrunk back (see [syncIconOffsetAfterRelayout]). */
+    private var suppressIconFade: Boolean = false
     private var dragActive: Boolean = false
     private var dragStartX: Float = 0f
     private var dragStartY: Float = 0f
@@ -348,6 +351,7 @@ class SettingsDrawerOverlay(
         hostWindowManager = null
         expanded = false
         progress = 0f
+        suppressIconFade = false
     }
 
     // --- panel ---------------------------------------------------------------------------
@@ -688,7 +692,7 @@ class SettingsDrawerOverlay(
         }
         val entryAlpha = (1f - p).coerceIn(0f, 1f)
         handleView?.alpha = entryAlpha
-        iconButton?.alpha = entryAlpha
+        iconButton?.alpha = if (suppressIconFade) 0f else entryAlpha
         expanded = p >= 0.99f
         // Stop the pulse as soon as the drawer starts opening — no point burning invalidate
         // cycles on a handle the user has already grabbed. Resume when fully collapsed.
@@ -759,6 +763,7 @@ class SettingsDrawerOverlay(
             addUpdateListener { setProgress(it.animatedValue as Float) }
         }
         settleAnimator = anim
+        if (target == 0f) suppressIconFade = true
         anim.start()
         // Cleanup after close: shrink the window back to the edge strip so touches on the
         // game area pass through again.
@@ -827,6 +832,7 @@ class SettingsDrawerOverlay(
                 if (laidOutFullscreen == paramsFullscreen) {
                     v.removeOnLayoutChangeListener(this)
                     syncIconOffsetToWindowState()
+                    revealIconIfCollapsed()
                 }
             }
         }
@@ -834,7 +840,17 @@ class SettingsDrawerOverlay(
         host.postDelayed({
             host.removeOnLayoutChangeListener(listener)
             syncIconOffsetToWindowState()
+            revealIconIfCollapsed()
         }, deadlineMs)
+    }
+
+    /** Fades the entry affordance back in once the window is parked again. */
+    private fun revealIconIfCollapsed() {
+        if (!suppressIconFade) return
+        val lp = params ?: return
+        if (lp.width == WindowManager.LayoutParams.MATCH_PARENT) return
+        suppressIconFade = false
+        iconButton?.animate()?.alpha(1f)?.setDuration(90L)?.start()
     }
 
     private fun collapseWindowIfNeeded() {
