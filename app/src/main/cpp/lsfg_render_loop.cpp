@@ -14,7 +14,6 @@
 #include <android/hardware_buffer.h>
 
 #include <atomic>
-#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -27,9 +26,6 @@
 #include <vector>
 #include <unordered_map>
 #include <dlfcn.h>
-#include <sys/resource.h>
-#include <sys/syscall.h>
-#include <unistd.h>
 #include <cstdio>
 #include "core/device.hpp"
 
@@ -1640,37 +1636,7 @@ void blitOutputToWindow(const AhbImage &out, bool allowGpuPost = true) {
     recordOverlayPost();
 }
 
-namespace {
-
-/**
- * Nudges the render/pacing thread into the same nice band the platform uses for
- * deadline-sensitive work (THREAD_PRIORITY_DISPLAY == -4). This is the thread
- * that arms sleep_until() against the next vsync: if a busy game delays its
- * wake-up by even a frame, the interpolated frame lands on the wrong refresh —
- * visible as pacing jitter (a doubled or dropped generated frame) despite ample
- * GPU headroom.
- *
- * SCHED_FIFO is deliberately not attempted: it needs CAP_SYS_NICE, which an app
- * process never has.
- */
-void raiseRenderThreadPriority() {
-    const int tid = static_cast<int>(::syscall(SYS_gettid));
-    errno = 0;
-    const int rc = ::setpriority(PRIO_PROCESS, tid, -4);
-    if (rc == 0) {
-        LOGI("render thread raised to nice -4 (THREAD_PRIORITY_DISPLAY), tid=%d", tid);
-    } else {
-        // RLIMIT_NICE is 0 on some OEM builds, which forbids negative nice for
-        // unprivileged apps. Not fatal — we simply keep the inherited priority.
-        LOGW("render thread priority unchanged: setpriority(-4) failed errno=%d (tid=%d)", errno, tid);
-    }
-}
-
-}  // namespace
-
 void workerThread() {
-    raiseRenderThreadPriority();
-
     int64_t prevCaptureTimestampNs = 0;
     bool havePrevCaptureTimestamp = false;
 
