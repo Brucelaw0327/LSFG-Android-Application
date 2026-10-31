@@ -91,6 +91,12 @@
                 android:value="lsfg_auto_overlay_probe" />
         </service>
 
+        <!-- Notification quick-toggle "refresh current app" button. Not
+             exported: the PendingIntent is created by this app only. -->
+        <receiver
+            android:name=".session.SessionQuickToggleReceiver"
+            android:exported="false" />
+
         <!-- Extends com.topjohnwu.superuser.ipc.RootService (libsu), which itself
              extends android.app.Service. Lint cannot resolve the parent across
              the AAR boundary and flags Instantiatable; suppress the false positive. -->

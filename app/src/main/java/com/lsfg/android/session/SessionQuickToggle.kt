@@ -38,6 +38,26 @@ object SessionQuickToggle {
     private const val RC_OPEN_APP = 1
     private const val RC_QUICK_START = 2
     private const val RC_QUICK_STOP = 3
+    private const val RC_REFRESH = 4
+
+    /** Action fired by the "Refresh current app" notification button. Handled
+     *  by [SessionQuickToggleReceiver], which reuses the launcher dot's
+     *  privileged foreground probe. */
+    const val ACTION_REFRESH_TARGET = "com.lsfg.android.action.REFRESH_TARGET"
+
+    /** Human-readable app label, falling back to the raw package name. */
+    fun appLabel(ctx: Context, pkg: String): String = runCatching {
+        val pm = ctx.packageManager
+        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+    }.getOrDefault(pkg)
+
+    /** True when [pkg] is the device launcher (ACTION_MAIN + CATEGORY_HOME).
+     *  A launcher is never a usable capture target. */
+    fun isHomePackage(ctx: Context, pkg: String): Boolean = runCatching {
+        val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        ctx.packageManager.resolveActivity(home, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+            ?.activityInfo?.packageName == pkg
+    }.getOrDefault(false)
 
     private fun ensureChannel(ctx: Context) {
         val mgr = ctx.getSystemService(NotificationManager::class.java) ?: return
@@ -72,12 +92,8 @@ object SessionQuickToggle {
             ensureChannel(appCtx)
             val prefs = LsfgPreferences(appCtx).load()
             val target = prefs.targetPackage
-            val targetText = if (target != null) {
-                val label = runCatching {
-                    val pm = appCtx.packageManager
-                    pm.getApplicationLabel(pm.getApplicationInfo(target, 0)).toString()
-                }.getOrDefault(target)
-                appCtx.getString(R.string.quick_toggle_target_text, label)
+            val targetText = if (target != null && !isHomePackage(appCtx, target)) {
+                appCtx.getString(R.string.quick_toggle_target_text, appLabel(appCtx, target))
             } else {
                 appCtx.getString(R.string.quick_toggle_no_target)
             }
@@ -99,6 +115,14 @@ object SessionQuickToggle {
                     .setAction(LsfgForegroundService.ACTION_STOP),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
+            // Re-probe the foreground app and retarget the standby session —
+            // same mechanism as the launcher dot's "Refresh current app".
+            val refreshPi = PendingIntent.getBroadcast(
+                appCtx, RC_REFRESH,
+                Intent(appCtx, SessionQuickToggleReceiver::class.java)
+                    .setAction(ACTION_REFRESH_TARGET),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
 
             val notif = NotificationCompat.Builder(appCtx, CHANNEL_ID)
                 .setContentTitle(appCtx.getString(R.string.quick_toggle_title))
@@ -107,6 +131,7 @@ object SessionQuickToggle {
                 .setOngoing(true)
                 .setContentIntent(openApp)
                 .addAction(0, appCtx.getString(R.string.session_start), startPi)
+                .addAction(0, appCtx.getString(R.string.quick_toggle_refresh), refreshPi)
                 .addAction(0, appCtx.getString(R.string.drawer_end_session), stopPi)
                 .build()
             NotificationManagerCompat.from(appCtx).notify(NOTIF_ID, notif)

@@ -14,6 +14,11 @@
     <string name="quick_toggle_target_text">待机 — 目标：%1$s</string>
     <string name="quick_toggle_no_target">未选择目标应用 — 点按打开 LSFG 选择</string>
     <string name="quick_toggle_mp_hint">MediaProjection 模式 — 请在应用内启动会话</string>
+    <string name="quick_toggle_refresh">刷新当前应用</string>
+    <string name="quick_toggle_refresh_ok">目标已更新：%1$s</string>
+    <string name="quick_toggle_refresh_failed">无法探测前台应用 — 请打开一次 LSFG 唤醒探测</string>
+    <string name="quick_toggle_refresh_self">前台应用是 LSFG 本身 — 请切到目标应用后再刷新</string>
+    <string name="quick_toggle_refresh_home">前台是桌面 — 请先打开目标应用再刷新</string>
 
     <string name="legal_title">法律声明</string>
     <string name="legal_warning_body"><![CDATA[

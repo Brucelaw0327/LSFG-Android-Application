@@ -800,7 +800,9 @@ class LsfgForegroundService : Service() {
         startForeground(NOTIF_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         SessionQuickToggle.hide(this)
         val prefs = LsfgPreferences(this).load()
-        val target = prefs.targetPackage
+        // A launcher target is useless (capture would follow the desktop) —
+        // treat it as "no target" so we fall through to opening the app.
+        val target = prefs.targetPackage?.takeUnless { SessionQuickToggle.isHomePackage(this, it) }
         val source = prefs.captureSource
         if (target == null || source == CaptureSource.MEDIA_PROJECTION) {
             LsfgLog.i(TAG, "quick start: target=$target source=$source — opening app instead")

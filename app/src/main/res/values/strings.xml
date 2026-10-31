@@ -14,6 +14,11 @@
     <string name="quick_toggle_target_text">Standby — target: %1$s</string>
     <string name="quick_toggle_no_target">No target app — tap to open LSFG and choose one</string>
     <string name="quick_toggle_mp_hint">MediaProjection mode — start the session from inside the app</string>
+    <string name="quick_toggle_refresh">Refresh current app</string>
+    <string name="quick_toggle_refresh_ok">Target updated: %1$s</string>
+    <string name="quick_toggle_refresh_failed">Couldn\'t detect the foreground app — open LSFG once to wake the probe</string>
+    <string name="quick_toggle_refresh_self">The foreground app is LSFG itself — switch to the target app, then refresh</string>
+    <string name="quick_toggle_refresh_home">The foreground app is the home screen — open the target app, then refresh</string>
 
     <string name="legal_title">Legal notice</string>
     <string name="legal_warning_body"><![CDATA[
