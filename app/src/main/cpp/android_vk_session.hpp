@@ -110,7 +110,9 @@ bool acquireCommandRing(VulkanSession &vk, VkCommandBuffer &outCb, VkFence &outF
 // Submit `cb` on the compute queue, signalling `fence` when it retires.
 // Does NOT wait. Use waitCommandRing(fence) when the caller actually needs
 // the GPU to be done.
-bool submitCommandRing(VulkanSession &vk, VkCommandBuffer cb, VkFence fence);
+bool submitCommandRing(VulkanSession &vk, VkCommandBuffer cb, VkFence fence,
+                       VkSemaphore waitSem = VK_NULL_HANDLE,
+                       VkSemaphore signalSem = VK_NULL_HANDLE);
 
 // Block until `fence` signals. Returns true if the wait succeeded (or the
 // fence was never armed). Marks the fence as "pending reset" so the next

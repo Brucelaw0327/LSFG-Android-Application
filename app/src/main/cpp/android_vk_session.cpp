@@ -468,12 +468,24 @@ bool acquireCommandRing(VulkanSession &vk, VkCommandBuffer &outCb, VkFence &outF
     return true;
 }
 
-bool submitCommandRing(VulkanSession &vk, VkCommandBuffer cb, VkFence fence) {
+bool submitCommandRing(VulkanSession &vk, VkCommandBuffer cb, VkFence fence,
+                       VkSemaphore waitSem, VkSemaphore signalSem) {
     if (vk.device == VK_NULL_HANDLE || cb == VK_NULL_HANDLE) return false;
+    // Optional cross-device sync (framegen semaphore handshake): the wait must
+    // cover every command in the buffer, and the signal fires only after all
+    // of them complete — submission-level, so ALL_COMMANDS is the right mask.
+    VkSemaphore waitSems[1] = { waitSem };
+    VkSemaphore signalSems[1] = { signalSem };
+    VkPipelineStageFlags waitStages[1] = { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
     const VkSubmitInfo si{
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = waitSem != VK_NULL_HANDLE ? 1u : 0u,
+        .pWaitSemaphores = waitSems,
+        .pWaitDstStageMask = waitStages,
         .commandBufferCount = 1,
         .pCommandBuffers = &cb,
+        .signalSemaphoreCount = signalSem != VK_NULL_HANDLE ? 1u : 0u,
+        .pSignalSemaphores = signalSems,
     };
     const VkResult r = vk.fn.vkQueueSubmit(vk.computeQueue, 1, &si, fence);
     if (r != VK_SUCCESS) {
