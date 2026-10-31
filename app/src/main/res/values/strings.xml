@@ -196,7 +196,6 @@
     <string name="perm_capture_denied">Screen capture was denied. LSFG cannot run without it.</string>
 
 
-    <string name="a11y_info">Optional. LSFG renders at full opacity and forwards touches to the game without this service. Enable it only if you notice rendering issues on a specific device.</string>
 
     <string name="crash_dialog_title">LSFG crashed on last run</string>
     <string name="crash_dialog_body">A report was saved. You can share it with the developer to help debug the issue. Device and extension info is already included — no personal data is attached.</string>

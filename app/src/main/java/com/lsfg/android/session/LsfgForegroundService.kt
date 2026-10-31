@@ -415,6 +415,12 @@ class LsfgForegroundService : Service() {
         touchPauseHandler = null
         touchPauseThread?.quitSafely()
         touchPauseThread = null
+        // MediaProjection uses a 1px watch window instead of the getevent
+        // poller; detach it here too, otherwise every session that ran in
+        // MediaProjection mode leaves a touch-eating overlay window behind
+        // (it was only ever added, never removed). startTouchPausePoller()
+        // re-attaches it when the new session needs one.
+        stopTouchWatchWindow()
     }
 
     private fun startTouchWatchWindow() {
@@ -442,10 +448,17 @@ class LsfgForegroundService : Service() {
     }
 
     private fun stopTouchWatchWindow() {
+        // WindowManager rejects removeView off the main thread on some OEMs;
+        // hop over when a teardown path reaches us from a worker.
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { stopTouchWatchWindow() }
+            return
+        }
         touchWatchResume?.let { mainHandler.removeCallbacks(it) }
         touchWatchResume = null
         touchWatchView?.let { v ->
             runCatching { getSystemService(WindowManager::class.java)?.removeView(v) }
+                .onFailure { LsfgLog.w(TAG, "touch watch window detach failed", it) }
         }
         touchWatchView = null
     }
@@ -843,6 +856,13 @@ class LsfgForegroundService : Service() {
         rotationRestartDeferred = false
         activeSessionTarget = null
         stopTargetAlivePoller()
+        // Belt-and-braces: stopTargetAlivePoller() -> stopTouchPausePoller()
+        // already detaches the MediaProjection touch-watch window, but that
+        // chain can be skipped when no poller was armed. An orphaned 1px
+        // TYPE_APPLICATION_OVERLAY window keeps eating touches after the
+        // session is gone, so tear it down unconditionally.
+        runCatching { stopTouchWatchWindow() }
+            .onFailure { LsfgLog.w(TAG, "stopTouchWatchWindow threw during teardown", it) }
         unregisterDisplayListener()
         // Block any further reinit requests and wait for one already in flight
         // to finish. Without this, a parameter change happening concurrently

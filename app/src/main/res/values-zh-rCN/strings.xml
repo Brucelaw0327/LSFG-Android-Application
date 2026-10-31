@@ -196,7 +196,6 @@
     <string name="perm_capture_denied">屏幕捕获被拒绝。没有它 LSFG 无法运行。</string>
 
 
-    <string name="a11y_info">可选。没有此服务时 LSFG 也能全不透明渲染并把触摸转发给游戏。仅当你在特定设备上发现渲染问题时才需要启用。</string>
 
     <string name="crash_dialog_title">LSFG 上次运行崩溃</string>
     <string name="crash_dialog_body">已保存一份报告。你可以分享给开发者帮助排查问题。已包含设备和扩展信息——不含任何个人数据。</string>
