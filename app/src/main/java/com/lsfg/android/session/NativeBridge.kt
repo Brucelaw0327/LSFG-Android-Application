@@ -92,8 +92,12 @@ object NativeBridge {
         queueDepth: Int,
     ): Int
 
-    /** True only when NNAPI reports a dedicated accelerator device, not CPU/GPU fallback. */
+    /** True only when NNAPI reports a dedicated accelerator device, not CPU/GPU fallback.
+     *  Used by the benchmark report header (devices / NPU summary lines). */
     external fun isNpuAvailable(): Boolean
+
+    /** Human-readable NNAPI accelerator list for diagnostics and settings copy. */
+    external fun getNpuSummary(): String
 
     /**
      * Reports whether the FP16 frame-generation shader path is usable on this
@@ -109,8 +113,6 @@ object NativeBridge {
      */
     external fun isFramegenFp16Supported(cacheDir: String): Boolean
 
-    /** Human-readable NNAPI accelerator list for diagnostics and settings copy. */
-    external fun getNpuSummary(): String
 
     /**
      * Attaches the overlay [surface] as the destination for blit of generated frames.

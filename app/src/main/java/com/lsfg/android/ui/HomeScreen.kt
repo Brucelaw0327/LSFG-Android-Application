@@ -64,7 +64,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
 import com.lsfg.android.R
-import com.lsfg.android.SHOW_IMAGE_QUALITY
 import com.lsfg.android.prefs.CaptureSource
 import com.lsfg.android.prefs.PacingPreset
 import com.lsfg.android.prefs.LsfgPreferences
@@ -687,27 +686,6 @@ fun HomeScreen(nav: NavHostController) {
             onClick = { nav.navigate(Routes.PARAMS_FRAMEGEN_PACING) },
         )
 
-        if (SHOW_IMAGE_QUALITY) {
-            val imageQualitySummary = buildString {
-                val parts = mutableListOf<String>()
-                if (state.gpuPostProcessingEnabled) parts += "GPU " + gpuMethodLabel(state.gpuPostProcessingMethod)
-                if (state.npuPostProcessingEnabled) parts += "NPU ${(state.npuAmount * 100f).toInt()}%"
-                if (state.cpuPostProcessingEnabled) parts += "CPU ${(state.cpuStrength * 100f).toInt()}%"
-                if (parts.isEmpty()) append("Off") else append(parts.joinToString(" · "))
-            }
-            val imageQualityOn = state.gpuPostProcessingEnabled ||
-                state.npuPostProcessingEnabled ||
-                state.cpuPostProcessingEnabled
-            StepCard(
-                number = 4,
-                title = stringResource(R.string.nav_image_quality),
-                subtitle = imageQualitySummary,
-                status = if (imageQualityOn) StatusTone.Good else StatusTone.Neutral,
-                statusLabel = if (imageQualityOn) "On" else "Off",
-                onClick = { nav.navigate(Routes.PARAMS_IMAGE_QUALITY) },
-            )
-        }
-
         val overlayDisplaySummary = buildString {
             append(
                 when (state.captureSource) {
@@ -728,7 +706,7 @@ fun HomeScreen(nav: NavHostController) {
             if (state.fpsCounterEnabled) append(" · FPS")
         }
         StepCard(
-            number = if (SHOW_IMAGE_QUALITY) 5 else 4,
+            number = 4,
             title = stringResource(R.string.nav_overlay_display),
             subtitle = overlayDisplaySummary,
             status = StatusTone.Neutral,
@@ -747,7 +725,7 @@ fun HomeScreen(nav: NavHostController) {
             stringResource(R.string.automatic_overlay_count_n, autoCount)
         }
         StepCard(
-            number = if (SHOW_IMAGE_QUALITY) 6 else 5,
+            number = 5,
             title = stringResource(R.string.nav_automatic_overlay),
             subtitle = autoSubtitle,
             status = if (autoCount > 0) StatusTone.Good else StatusTone.Neutral,
@@ -843,22 +821,4 @@ private fun versionName(ctx: Context): String {
 
 private const val SHIZUKU_PERMISSION_REQUEST = 6104
 
-private fun gpuMethodLabel(m: com.lsfg.android.prefs.GpuPostProcessingMethod): String = when (m) {
-    com.lsfg.android.prefs.GpuPostProcessingMethod.FSR1_EASU_RCAS -> "FSR1"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.AMD_CAS -> "CAS"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.NVIDIA_NIS -> "NIS"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.LANCZOS -> "Lanczos"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.BICUBIC -> "Bicubic"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.BILINEAR -> "Bilinear"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.CATMULL_ROM -> "Catmull"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.MITCHELL_NETRAVALI -> "Mitchell"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.ANIME4K_ULTRAFAST -> "Anime4K Fast"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.ANIME4K_RESTORE -> "Anime4K Restore"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.XBRZ -> "xBRZ"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.EDGE_DIRECTED -> "Edge"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.UNSHARP_MASK -> "Unsharp"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.LUMA_SHARPEN -> "Luma"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.CONTRAST_ADAPTIVE -> "Contrast"
-    com.lsfg.android.prefs.GpuPostProcessingMethod.DEBAND -> "Deband"
-}
 

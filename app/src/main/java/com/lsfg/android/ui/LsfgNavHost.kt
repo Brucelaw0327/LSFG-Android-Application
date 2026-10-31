@@ -15,7 +15,6 @@ object Routes {
     const val LEGAL = "legal"
     const val DLL = "dll"
     const val PARAMS_FRAMEGEN_PACING = "params_framegen_pacing"
-    const val PARAMS_IMAGE_QUALITY = "params_image_quality"
     const val OVERLAY_DISPLAY = "overlay_display"
     const val APP_PICKER = "app_picker"
     const val AUTOMATIC_OVERLAY = "automatic_overlay"
@@ -47,7 +46,6 @@ fun LsfgNavHost(navController: NavHostController) {
         composable(Routes.LEGAL) { LegalScreen(navController) }
         composable(Routes.DLL) { DllPickerScreen(navController) }
         composable(Routes.PARAMS_FRAMEGEN_PACING) { ParamsFrameGenPacingScreen(navController) }
-        composable(Routes.PARAMS_IMAGE_QUALITY) { ParamsImageQualityScreen(navController) }
         composable(Routes.OVERLAY_DISPLAY) { OverlayDisplayScreen(navController) }
         composable(Routes.APP_PICKER) { AppPickerScreen(navController) }
         composable(Routes.AUTOMATIC_OVERLAY) { AutomaticOverlayScreen(navController) }
