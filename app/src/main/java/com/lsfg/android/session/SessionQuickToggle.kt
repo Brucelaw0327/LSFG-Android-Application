@@ -33,12 +33,25 @@ import com.lsfg.android.ui.MainActivity
 object SessionQuickToggle {
 
     private const val TAG = "QuickToggle"
-    private const val CHANNEL_ID = "lsfg_quick_toggle"
+    private const val CHANNEL_ID = "lsfg_quick_toggle_v2"
+    /** Pre-LOW-importance channel; deleted on first run so the new importance
+     *  takes effect (Android never lets an app raise an existing channel's
+     *  importance). */
+    private const val LEGACY_CHANNEL_ID = "lsfg_quick_toggle"
     private const val NOTIF_ID = 3001
     private const val RC_OPEN_APP = 1
     private const val RC_QUICK_START = 2
-    private const val RC_QUICK_STOP = 3
     private const val RC_REFRESH = 4
+
+    /**
+     * Shared notification group. Without an explicit group the system folds
+     * this notification together with the watcher's foreground notification
+     * into a synthetic "Aggregate_AlertingSection" summary — the result mixed
+     * this card's title with the watcher's body text and hid all action
+     * buttons behind an extra expand tap. Both notifications join [GROUP_KEY]
+     * instead, with this one as the summary, so the buttons stay reachable.
+     */
+    const val GROUP_KEY = "com.lsfg.android.LSFG_STATUS"
 
     /** Action fired by the "Refresh current app" notification button. Handled
      *  by [SessionQuickToggleReceiver], which reuses the launcher dot's
@@ -66,9 +79,14 @@ object SessionQuickToggle {
                 NotificationChannel(
                     CHANNEL_ID,
                     ctx.getString(R.string.quick_toggle_channel),
-                    NotificationManager.IMPORTANCE_MIN,
+                    // LOW instead of MIN: MIN is filed under the "silent
+                    // notifications" bucket on ColorOS, which hides the card
+                    // behind another expand step. LOW is still silent (no
+                    // sound, no heads-up) but stays in the main list.
+                    NotificationManager.IMPORTANCE_LOW,
                 ),
             )
+            runCatching { mgr.deleteNotificationChannel(LEGACY_CHANNEL_ID) }
         }
     }
 
@@ -109,12 +127,6 @@ object SessionQuickToggle {
                     .setAction(LsfgForegroundService.ACTION_QUICK_START),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            val stopPi = PendingIntent.getService(
-                appCtx, RC_QUICK_STOP,
-                Intent(appCtx, LsfgForegroundService::class.java)
-                    .setAction(LsfgForegroundService.ACTION_STOP),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
             // Re-probe the foreground app and retarget the standby session —
             // same mechanism as the launcher dot's "Refresh current app".
             val refreshPi = PendingIntent.getBroadcast(
@@ -124,15 +136,21 @@ object SessionQuickToggle {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
 
+            // No "end session" action here on purpose: show() only runs while
+            // no session exists (applicable()), so the button could never do
+            // anything but start the service just to stop it again. The live
+            // session's own foreground notification carries that action.
             val notif = NotificationCompat.Builder(appCtx, CHANNEL_ID)
                 .setContentTitle(appCtx.getString(R.string.quick_toggle_title))
                 .setContentText(targetText)
                 .setSmallIcon(android.R.drawable.ic_menu_view)
                 .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setGroup(GROUP_KEY)
+                .setGroupSummary(true)
                 .setContentIntent(openApp)
                 .addAction(0, appCtx.getString(R.string.session_start), startPi)
                 .addAction(0, appCtx.getString(R.string.quick_toggle_refresh), refreshPi)
-                .addAction(0, appCtx.getString(R.string.drawer_end_session), stopPi)
                 .build()
             NotificationManagerCompat.from(appCtx).notify(NOTIF_ID, notif)
         }.onFailure { LsfgLog.w(TAG, "show quick-toggle notification failed", it) }

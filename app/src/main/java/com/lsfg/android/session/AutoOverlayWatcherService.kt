@@ -215,6 +215,10 @@ class AutoOverlayWatcherService : Service() {
             .setContentTitle(getString(R.string.auto_overlay_watcher_notif))
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setOngoing(true)
+            // Join the quick-toggle group as a child: the standby toggle stays
+            // the group summary (its action buttons must stay visible), while
+            // this status line collapses underneath it.
+            .setGroup(SessionQuickToggle.GROUP_KEY)
             .build()
         startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
     }
