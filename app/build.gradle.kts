@@ -21,8 +21,8 @@ android {
         applicationId = "com.lsfg.android"
         minSdk = 34
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.1.4"
+        versionCode = 7
+        versionName = "0.1.5"
 
         // ABI filtering is handled by the splits { abi } block below (which
         // both restricts the build set to arm64-v8a/x86_64 and emits per-ABI
