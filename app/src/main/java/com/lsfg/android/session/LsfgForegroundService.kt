@@ -87,6 +87,9 @@ class LsfgForegroundService : Service() {
     private var touchResumePending = false
     private var touchWatchView: View? = null
     private var touchWatchResume: Runnable? = null
+    // Queued park on the main looper, held so a touch on our own overlay UI
+    // (markUiTouch) can cancel it before it runs and swallows the tap.
+    private var pendingParkRunnable: Runnable? = null
 
     private var initialCaptureStarted: Boolean = false
     private var lsfgContextActive: Boolean = false
@@ -173,6 +176,11 @@ class LsfgForegroundService : Service() {
         super.onCreate()
         ensureChannel()
         registerDisplayListener()
+        // A tap on our own overlay chrome must retract any park that raw-input
+        // detection queued a few ms earlier (it reads /dev/input before the
+        // touch is dispatched to the View). markUiTouch() runs on the main
+        // thread, so the callback cancels the pending park synchronously.
+        SettingsDrawerOverlay.setUiTouchListener { onOverlayUiTouch() }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -467,12 +475,7 @@ class LsfgForegroundService : Service() {
                 if (touchPauseArmed) restoreAfterTouchPause()
                 return@post
             }
-            if (!touchPauseArmed) {
-                touchPauseArmed = true
-                LsfgLog.i(TAG, "touch down - parking framegen overlay for direct touch response")
-                runCatching { drawer?.hide() }
-                runCatching { overlay?.setWindowHidden(true) }
-            }
+            queueParkFramegen()
         }
         touchWatchResume?.let { mainHandler.removeCallbacks(it) }
         val r = Runnable {
@@ -510,14 +513,7 @@ class LsfgForegroundService : Service() {
         }
         val down = isTouchDownNow() ?: false
         if (down && !touchPauseArmed) {
-            touchPauseArmed = true
-            touchResumePending = false
-            mainHandler.post {
-                if (shuttingDown) return@post
-                LsfgLog.i(TAG, "touch down - parking framegen overlay for direct touch response")
-                runCatching { drawer?.hide() }
-                runCatching { overlay?.setWindowHidden(true) }
-            }
+            queueParkFramegen()
         } else if (!down && touchPauseArmed && !touchResumePending) {
             touchResumePending = true
             mainHandler.postDelayed({
@@ -530,19 +526,65 @@ class LsfgForegroundService : Service() {
         }
     }
 
+    /**
+     * Queue the framegen park on the main looper, holding the runnable so a
+     * touch on our own overlay UI can cancel it before it runs. The raw-input
+     * poller samples /dev/input on a background thread, several ms before the
+     * touch is dispatched to the View, so the initial uiTouchFresh() check can
+     * legitimately be false even when the user is tapping the drawer button.
+     *
+     * The runnable re-checks UI-touch state on the main thread (closing the
+     * cross-thread race), and — critically — does NOT hide the drawer window.
+     * The floating button must stay tappable while framegen is parked; hiding
+     * it mid-tap loses the ACTION_UP so the panel never opens, and a removed
+     * window can turn into a touch-eating zombie on some WMS relayouts.
+     */
+    private fun queueParkFramegen() {
+        if (touchPauseArmed) return
+        touchPauseArmed = true
+        touchResumePending = false
+        val park = Runnable {
+            pendingParkRunnable = null
+            if (shuttingDown) return@Runnable
+            // Main-thread re-check: markUiTouch() may have fired after the
+            // background poll sampled the input state.
+            if (drawer?.isExpanded() == true ||
+                SettingsDrawerOverlay.uiTouchFresh(OVERLAY_UI_TOUCH_GRACE_MS)
+            ) {
+                if (touchPauseArmed) restoreAfterTouchPause()
+                return@Runnable
+            }
+            LsfgLog.i(TAG, "touch down - parking framegen overlay for direct touch response")
+            runCatching { overlay?.setWindowHidden(true) }
+        }
+        pendingParkRunnable = park
+        mainHandler.post(park)
+    }
+
+    /** Called synchronously from markUiTouch() on the main thread. */
+    private fun onOverlayUiTouch() {
+        pendingParkRunnable?.let {
+            mainHandler.removeCallbacks(it)
+            pendingParkRunnable = null
+        }
+        if (touchPauseArmed) restoreAfterTouchPause()
+    }
+
     private fun restoreAfterTouchPause() {
         if (!touchPauseArmed) return
         touchPauseArmed = false
+        pendingParkRunnable?.let {
+            mainHandler.removeCallbacks(it)
+            pendingParkRunnable = null
+        }
         mainHandler.post {
             if (shuttingDown) return@post
             LsfgLog.i(TAG, "touch released - restoring framegen overlay")
             if (!overlayHiddenForBackground) {
-                runCatching { drawer?.show() }
                 runCatching { overlay?.setWindowHidden(false) }
                 runCatching { overlay?.bringToFront() }
-                // Overlay just re-fronted itself; keep the drawer above it or
-                // the ball/panel stay invisible until some other event
-                // re-adds the drawer window.
+                // Drawer is no longer hidden by parking, but re-front it so it
+                // stays above the just-restored framegen overlay.
                 runCatching { drawer?.bringToFront() }
             }
         }
@@ -785,6 +827,9 @@ class LsfgForegroundService : Service() {
         LsfgLog.i(TAG, "onDestroy — tearing down service (caller triggered stopSelf or system killed us)")
         super.onDestroy()
         AutoOverlayController.setSessionWatcher(null)
+        SettingsDrawerOverlay.setUiTouchListener(null)
+        pendingParkRunnable?.let { mainHandler.removeCallbacks(it) }
+        pendingParkRunnable = null
         autoStopPending?.let { mainHandler.removeCallbacks(it) }
         autoStopPending = null
         overlayHiddenForBackground = false

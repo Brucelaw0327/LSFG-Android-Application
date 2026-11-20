@@ -70,6 +70,13 @@ class LauncherDotOverlay(
     private var panelContainer: View? = null
     private var params: WindowManager.LayoutParams? = null
 
+    // ICON_BUTTON 模式：悬浮球独立窗口，坐标固定在 (iconX, iconY)，永不 resize。
+    // 面板窗口（root/params）常驻全屏，靠 flag + View alpha/translation 进出。
+    // 与 SettingsDrawerOverlay 的结构一致。
+    private var dotRoot: FrameLayout? = null
+    private var dotLp: WindowManager.LayoutParams? = null
+    private var dotTouchBlocked: Boolean = false
+
     private var screenW: Int = 0
     private var screenH: Int = 0
     private var edgeStripWidthPx: Int = 0
@@ -116,11 +123,11 @@ class LauncherDotOverlay(
     private var iconDragFramePending: Boolean = false
     private val iconDragFrameCallback = Choreographer.FrameCallback {
         iconDragFramePending = false
-        val lp = params
-        val r = root
+        // 球在自己的独立窗口，拖拽只改 dotLp 坐标；球窗口尺寸恒定。
+        val lp = dotLp
+        val r = dotRoot
         val wm = hostWm
-        if (lp != null && r != null && wm != null && r.isAttachedToWindow &&
-            lp.width != WindowManager.LayoutParams.MATCH_PARENT) {
+        if (lp != null && r != null && wm != null && r.isAttachedToWindow) {
             lp.x = iconX
             lp.y = iconY
             runCatching { wm.updateViewLayout(r, lp) }
@@ -128,8 +135,25 @@ class LauncherDotOverlay(
         }
     }
 
+    /** 面板展开时让球窗口 NOT_TOUCHABLE（alpha=0 仍会被命中），带去重避免逐帧 Binder。 */
+    private fun setDotTouchBlocked(blocked: Boolean) {
+        if (entryMode != OverlayMode.ICON_BUTTON) return
+        if (dotTouchBlocked == blocked) return
+        val dRoot = dotRoot ?: return
+        val lp = dotLp ?: return
+        val wm = hostWm ?: return
+        dotTouchBlocked = blocked
+        if (blocked) {
+            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        } else {
+            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        }
+        runCatching { wm.updateViewLayout(dRoot, lp) }
+            .onFailure { Log.w(TAG, "setDotTouchBlocked updateViewLayout failed", it) }
+    }
+
     fun show(): Boolean {
-        if (root != null) return true
+        if (root != null || dotRoot != null) return true
 
         val a11y = LsfgAccessibilityService.instance
         val hostCtx: Context = a11y ?: ctx
@@ -145,10 +169,17 @@ class LauncherDotOverlay(
         iconSizePx = dp(48)
         panelWidthPx = minOf(dp(340), (screenW * 0.85f).toInt())
         panelHeightPx = minOf(dp(340), (screenH * 0.85f).toInt())
-        drawerEdge = LsfgPreferences(ctx).load().drawerEdge
-        // Icon defaults: stuck to the right edge, vertically centred.
-        iconX = (screenW - iconSizePx - dp(8)).coerceAtLeast(0)
-        iconY = ((screenH - iconSizePx) / 2).coerceAtLeast(0)
+        val prefs = LsfgPreferences(ctx)
+        drawerEdge = prefs.load().drawerEdge
+        // 悬浮球位置：优先用上次拖动保存的位置（蓝/黄共享），否则贴右边缘居中。
+        val (savedX, savedY) = prefs.getFloatingDotPos()
+        if (savedX >= 0 && savedY >= 0) {
+            iconX = savedX.coerceIn(0, (screenW - iconSizePx).coerceAtLeast(0))
+            iconY = savedY.coerceIn(0, (screenH - iconSizePx).coerceAtLeast(0))
+        } else {
+            iconX = (screenW - iconSizePx - dp(8)).coerceAtLeast(0)
+            iconY = ((screenH - iconSizePx) / 2).coerceAtLeast(0)
+        }
 
         val layoutType = if (a11y != null) {
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
@@ -161,23 +192,30 @@ class LauncherDotOverlay(
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
 
-        // Start narrow so only the entry affordance captures touches. When the user
-        // opens the panel we expand to MATCH_PARENT so the scrim + panel can be
-        // laid out across the whole screen.
+        // 面板窗口恒全屏、永不 resize（scrim/panel 靠 View alpha/translation 进出）。
+        // ICON 模式：收起态内容全 GONE + NOT_TOUCHABLE，触摸穿透给游戏；展开清 flag。
+        // DRAWER 模式：保留边缘窄条 resize 到全屏的原有语义。
+        val isIcon = entryMode == OverlayMode.ICON_BUTTON
+        val panelFlags = if (isIcon) {
+            flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        } else {
+            flags
+        }
         val lp = WindowManager.LayoutParams(
-            collapsedWindowWidth(),
-            collapsedWindowHeight(),
+            if (isIcon) WindowManager.LayoutParams.MATCH_PARENT else collapsedWindowWidth(),
+            if (isIcon) WindowManager.LayoutParams.MATCH_PARENT else collapsedWindowHeight(),
             layoutType,
-            flags,
+            panelFlags,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = collapsedWindowGravity()
-            x = if (entryMode == OverlayMode.ICON_BUTTON) iconX else 0
-            y = if (entryMode == OverlayMode.ICON_BUTTON) iconY else 0
+            gravity = if (isIcon) Gravity.TOP or Gravity.START else collapsedWindowGravity()
+            x = 0
+            y = 0
             layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         }
         params = lp
+        if (isIcon) dotTouchBlocked = false
 
         val rootLayout = FrameLayout(ctx)
         root = rootLayout
@@ -213,17 +251,39 @@ class LauncherDotOverlay(
             rootLayout.addView(handle, handleLayoutParams())
             attachEdgeSwipeBehavior(rootLayout)
             startHandlePulse()
-        } else {
-            val icon = buildIconButton()
-            iconButton = icon
-            rootLayout.addView(icon, iconButtonLayoutParams())
-            attachIconButtonBehavior(icon)
         }
 
         var attached = false
         runCatching { wm.addView(rootLayout, lp) }
             .onSuccess { attached = true }
-            .onFailure { Log.w(TAG, "addView failed", it) }
+            .onFailure { Log.w(TAG, "panel addView failed", it) }
+
+        if (entryMode == OverlayMode.ICON_BUTTON && attached) {
+            // ICON：悬浮球独立窗口，坐标固定在 (iconX, iconY)，永不参与面板开关。
+            val icon = buildIconButton()
+            iconButton = icon
+            attachIconButtonBehavior(icon)
+            val dotLayout = FrameLayout(ctx).apply {
+                addView(icon, iconButtonLayoutParams())
+            }
+            dotRoot = dotLayout
+            val dlp = WindowManager.LayoutParams(
+                iconSizePx,
+                iconSizePx,
+                layoutType,
+                flags, // 收起态可触摸；展开态由 setDotTouchBlocked 加 NOT_TOUCHABLE
+                PixelFormat.TRANSLUCENT,
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = iconX
+                y = iconY
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+            dotLp = dlp
+            runCatching { wm.addView(dotLayout, dlp) }
+                .onFailure { Log.w(TAG, "dot addView failed", it) }
+        }
         registerDisplayListener()
         if (attached) {
             Log.i(TAG, "Launcher entry shown (mode=$entryMode)")
@@ -234,7 +294,7 @@ class LauncherDotOverlay(
     }
 
     fun hide() {
-        val r = root ?: return
+        if (root == null && dotRoot == null) return
         val wm = hostWm
         unregisterDisplayListener()
         settleAnimator?.cancel()
@@ -242,10 +302,13 @@ class LauncherDotOverlay(
         pulseAnimator?.cancel()
         pulseAnimator = null
         if (wm != null) {
-            runCatching { wm.removeView(r) }
-                .onFailure { Log.w(TAG, "removeView failed", it) }
+            root?.let { r -> runCatching { wm.removeView(r) }.onFailure { Log.w(TAG, "panel removeView failed", it) } }
+            dotRoot?.let { d -> runCatching { wm.removeView(d) }.onFailure { Log.w(TAG, "dot removeView failed", it) } }
         }
         root = null
+        dotRoot = null
+        dotLp = null
+        dotTouchBlocked = false
         handleView = null
         iconButton = null
         scrim = null
@@ -314,18 +377,25 @@ class LauncherDotOverlay(
             iconY = iconY.coerceIn(0, (screenH - iconSizePx).coerceAtLeast(0))
         }
 
-        if (lp.width != WindowManager.LayoutParams.MATCH_PARENT ||
+        if (entryMode == OverlayMode.ICON_BUTTON) {
+            // ICON：面板窗口恒全屏不动；球窗口 clamp 后写回坐标。
+            val dLp = dotLp
+            val dRoot = dotRoot
+            if (dLp != null && dRoot != null && dRoot.isAttachedToWindow) {
+                dLp.width = iconSizePx
+                dLp.height = iconSizePx
+                dLp.x = iconX
+                dLp.y = iconY
+                runCatching { wm.updateViewLayout(dRoot, dLp) }
+                    .onFailure { Log.w(TAG, "dot relayout updateViewLayout failed", it) }
+            }
+        } else if (lp.width != WindowManager.LayoutParams.MATCH_PARENT ||
             lp.height != WindowManager.LayoutParams.MATCH_PARENT) {
             lp.width = collapsedWindowWidth()
             lp.height = collapsedWindowHeight()
             lp.gravity = collapsedWindowGravity()
-            if (entryMode == OverlayMode.ICON_BUTTON) {
-                lp.x = iconX
-                lp.y = iconY
-            } else {
-                lp.x = 0
-                lp.y = 0
-            }
+            lp.x = 0
+            lp.y = 0
         }
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "relayoutForCurrentDisplay updateViewLayout failed", it) }
@@ -422,6 +492,8 @@ class LauncherDotOverlay(
         // window (it would render clipped = "panel not fully shown").
         // expandWindow() no-ops once the window is already MATCH_PARENT.
         if (p > 0f) expandWindow()
+        // 面板一展开就让球 NOT_TOUCHABLE（alpha=0 的球仍会被命中），去重由内部完成。
+        setDotTouchBlocked(p > 0f)
         val panelView = panelContainer ?: return
         panelView.visibility = View.VISIBLE
         applyPanelProgress(panelView, p)
@@ -517,15 +589,21 @@ class LauncherDotOverlay(
         val r = root ?: return
         if (!r.isAttachedToWindow) return
         val lp = params ?: return
-        if (lp.width == WindowManager.LayoutParams.MATCH_PARENT &&
-            lp.height == WindowManager.LayoutParams.MATCH_PARENT) return
-        lp.width = WindowManager.LayoutParams.MATCH_PARENT
-        lp.height = WindowManager.LayoutParams.MATCH_PARENT
-        // ICON_BUTTON: collapsed window was offset to the icon's position; when
-        // expanded to fullscreen reset x/y so scrim+panel cover the entire display.
+
         if (entryMode == OverlayMode.ICON_BUTTON) {
-            lp.x = 0
-            lp.y = 0
+            // 面板窗口恒全屏，展开只清 NOT_TOUCHABLE；尺寸/坐标不动，绝不碰球窗口。
+            val cleared = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            if (lp.width == WindowManager.LayoutParams.MATCH_PARENT &&
+                lp.height == WindowManager.LayoutParams.MATCH_PARENT &&
+                lp.flags == cleared) return
+            lp.width = WindowManager.LayoutParams.MATCH_PARENT
+            lp.height = WindowManager.LayoutParams.MATCH_PARENT
+            lp.flags = cleared
+        } else {
+            if (lp.width == WindowManager.LayoutParams.MATCH_PARENT &&
+                lp.height == WindowManager.LayoutParams.MATCH_PARENT) return
+            lp.width = WindowManager.LayoutParams.MATCH_PARENT
+            lp.height = WindowManager.LayoutParams.MATCH_PARENT
         }
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "expandWindow failed", it) }
@@ -536,19 +614,23 @@ class LauncherDotOverlay(
         val r = root ?: return
         if (!r.isAttachedToWindow) return
         val lp = params ?: return
-        val targetW = collapsedWindowWidth()
-        val targetH = collapsedWindowHeight()
-        val needsResize = lp.width != targetW || lp.height != targetH
-        val needsReposition = entryMode == OverlayMode.ICON_BUTTON && (lp.x != iconX || lp.y != iconY)
-        if (!needsResize && !needsReposition) return
-        lp.width = targetW
-        lp.height = targetH
+
         if (entryMode == OverlayMode.ICON_BUTTON) {
-            lp.x = iconX
-            lp.y = iconY
+            // ICON：面板窗口尺寸/坐标恒全屏不动，收起只加 NOT_TOUCHABLE 让触摸穿透。
+            val blocked = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            scrim?.visibility = View.GONE
+            panelContainer?.visibility = View.GONE
+            if (lp.flags == blocked) return
+            lp.flags = blocked
+        } else {
+            val targetW = collapsedWindowWidth()
+            val targetH = collapsedWindowHeight()
+            if (lp.width == targetW && lp.height == targetH) return
+            lp.width = targetW
+            lp.height = targetH
+            scrim?.visibility = View.GONE
+            panelContainer?.visibility = View.GONE
         }
-        scrim?.visibility = View.GONE
-        panelContainer?.visibility = View.GONE
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "collapseWindowIfNeeded failed", it) }
     }
@@ -837,16 +919,18 @@ class LauncherDotOverlay(
                             pv.layoutParams = panelLayoutParams()
                             applyPanelProgress(pv, progress)
                         }
-                        val lp = params
-                        val r = root
+                        // 吸附写球窗口自己的 lp；球窗口尺寸恒定，无需 width 守卫。
+                        val lp = dotLp
+                        val r = dotRoot
                         val wm = hostWm
-                        if (lp != null && r != null && wm != null && r.isAttachedToWindow &&
-                            lp.width != WindowManager.LayoutParams.MATCH_PARENT) {
+                        if (lp != null && r != null && wm != null && r.isAttachedToWindow) {
                             lp.x = iconX
                             lp.y = iconY
                             runCatching { wm.updateViewLayout(r, lp) }
                                 .onFailure { Log.w(TAG, "icon snap updateViewLayout failed", it) }
                         }
+                        // 持久化位置，会话重建后悬浮球回到这里（蓝/黄共享）。
+                        LsfgPreferences(ctx).setFloatingDotPos(iconX, iconY)
                     } else {
                         // Tap — open the panel, waiting for the WM window
                         // expansion to land so the animation never runs inside

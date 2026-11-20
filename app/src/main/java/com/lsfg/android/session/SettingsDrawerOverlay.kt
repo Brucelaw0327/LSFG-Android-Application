@@ -91,6 +91,13 @@ class SettingsDrawerOverlay(
     private var panelContainer: View? = null
     private var params: WindowManager.LayoutParams? = null
 
+    // ICON_BUTTON 模式：悬浮球独立窗口，坐标固定在 (iconX, iconY)，永不 resize。
+    // 面板窗口（root/params）则常驻全屏，靠 flag + View alpha/translation 进出。
+    // 两者彻底解耦，从根上消除"窗口 resize 带着球跳变"的问题。
+    private var dotRoot: FrameLayout? = null
+    private var dotLp: WindowManager.LayoutParams? = null
+    private var dotTouchBlocked: Boolean = false
+
     private var bypassListener: BypassToggleListener? = null
     private var stopListener: StopOverlayListener? = null
     private var fpsCounterListener: FpsCounterListener? = null
@@ -136,16 +143,75 @@ class SettingsDrawerOverlay(
     private var iconDragFramePending: Boolean = false
     private val iconDragFrameCallback = Choreographer.FrameCallback {
         iconDragFramePending = false
-        val lp = params
-        val r = root
+        // 球在自己的独立窗口，拖拽只改 dotLp 坐标；球窗口尺寸恒定，
+        // 屏幕位置就是 (iconX, iconY)，不再受面板窗口状态影响。
+        val lp = dotLp
+        val r = dotRoot
         val wm = hostWindowManager
-        if (lp != null && r != null && wm != null && r.isAttachedToWindow &&
-            lp.width != WindowManager.LayoutParams.MATCH_PARENT) {
+        if (lp != null && r != null && wm != null && r.isAttachedToWindow) {
             lp.x = iconX
             lp.y = iconY
             runCatching { wm.updateViewLayout(r, lp) }
                 .onFailure { Log.w(TAG, "icon drag updateViewLayout failed", it) }
         }
+    }
+
+    /**
+     * ICON 模式下切换悬浮球窗口的可触摸性。面板展开时球 alpha=0，但 View 的 alpha
+     * 不影响命中测试——必须靠 FLAG_NOT_TOUCHABLE 才能让该区域的点击穿透到下方 scrim。
+     * 带布尔去重：setProgress 每帧调用，但只在状态翻转时才做 Binder 调用。
+     */
+    private fun setDotTouchBlocked(blocked: Boolean) {
+        if (entryMode != OverlayMode.ICON_BUTTON) return
+        if (dotTouchBlocked == blocked) return
+        val dRoot = dotRoot ?: return
+        val lp = dotLp ?: return
+        val wm = hostWindowManager ?: return
+        dotTouchBlocked = blocked
+        if (blocked) {
+            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        } else {
+            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        }
+        runCatching { wm.updateViewLayout(dRoot, lp) }
+            .onFailure { Log.w(TAG, "setDotTouchBlocked updateViewLayout failed", it) }
+    }
+
+    /**
+     * 移除一个 overlay 窗口，失败时在主 looper 上重试（10×200ms）。全屏 scrim 窗口
+     * 若 removeView 失败会变成吞掉全屏触摸的僵尸窗口，必须重试到真正移除。捕获局部
+     * view 引用，因此调用方可立即把字段置 null 而不影响重试。
+     */
+    private fun removeWindowWithRetry(view: View) {
+        val wm = hostWindowManager
+        if (wm == null) {
+            Log.w(TAG, "removeWindowWithRetry: hostWindowManager null — window may LEAK")
+            return
+        }
+        var removed = false
+        runCatching { wm.removeView(view) }
+            .onSuccess { removed = true }
+            .onFailure { Log.w(TAG, "removeView FAILED", it) }
+        if (removed) {
+            Log.i(TAG, "overlay window removed")
+            return
+        }
+        if (!view.isAttachedToWindow) return
+        val handler = Handler(Looper.getMainLooper())
+        var attempt = 0
+        val retry = object : Runnable {
+            override fun run() {
+                attempt++
+                if (!view.isAttachedToWindow) return
+                runCatching { wm.removeView(view) }
+                    .onSuccess { Log.i(TAG, "overlay window removed on retry #$attempt") }
+                    .onFailure {
+                        Log.w(TAG, "removeView retry #$attempt FAILED", it)
+                        if (attempt < 10) handler.postDelayed(this, 200L)
+                    }
+            }
+        }
+        handler.postDelayed(retry, 200L)
     }
 
     fun setBypassListener(l: BypassToggleListener) { bypassListener = l }
@@ -161,7 +227,7 @@ class SettingsDrawerOverlay(
     fun isExpanded(): Boolean = expanded
 
     fun show() {
-        if (root != null) return
+        if (root != null || dotRoot != null) return
 
         // Match OverlayManager's host choice — they MUST live in the same
         // layer family or the drawer disappears behind the capture overlay.
@@ -184,9 +250,16 @@ class SettingsDrawerOverlay(
         panelHeightPx = minOf(dp(340), (screenH * 0.85f).toInt())
         panelMarginPx = dp(12)
         drawerEdge = prefs.drawerEdge
-        // Initial icon position: stick it to the right edge, vertically centred.
-        iconX = screenW - iconSizePx - dp(8)
-        iconY = (screenH - iconSizePx) / 2
+        // 悬浮球位置：优先用上次拖动保存的位置（蓝/黄共享），否则贴右边缘居中。
+        // clamp 到当前屏幕，避免旋转/换设备后位置落在屏外。
+        val (savedX, savedY) = LsfgPreferences(ctx).getFloatingDotPos()
+        if (savedX >= 0 && savedY >= 0) {
+            iconX = savedX.coerceIn(0, (screenW - iconSizePx).coerceAtLeast(0))
+            iconY = savedY.coerceIn(0, (screenH - iconSizePx).coerceAtLeast(0))
+        } else {
+            iconX = screenW - iconSizePx - dp(8)
+            iconY = (screenH - iconSizePx) / 2
+        }
 
         val layoutType = if (useTrusted) {
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
@@ -199,23 +272,30 @@ class SettingsDrawerOverlay(
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
 
-        // Start narrow so only the entry affordance captures touches. When the user opens
-        // the panel we expand to MATCH_PARENT so scrim + panel can be laid out across the
-        // whole screen.
+        // 面板窗口恒为全屏、永不 resize（scrim/panel 靠 View alpha/translation 进出）。
+        // ICON 模式：收起态内容全 GONE 且 NOT_TOUCHABLE，触摸穿透给游戏；展开时清 flag。
+        // DRAWER 模式：仍需从边缘窄条 resize 到全屏，保持原有 collapsed 语义。
+        val isIcon = entryMode == OverlayMode.ICON_BUTTON
+        val panelFlags = if (isIcon) {
+            flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        } else {
+            flags
+        }
         val lp = WindowManager.LayoutParams(
-            collapsedWindowWidth(),
-            collapsedWindowHeight(),
+            if (isIcon) WindowManager.LayoutParams.MATCH_PARENT else collapsedWindowWidth(),
+            if (isIcon) WindowManager.LayoutParams.MATCH_PARENT else collapsedWindowHeight(),
             layoutType,
-            flags,
+            panelFlags,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = collapsedWindowGravity()
-            x = if (entryMode == OverlayMode.ICON_BUTTON) iconX else 0
-            y = if (entryMode == OverlayMode.ICON_BUTTON) iconY else 0
+            gravity = if (isIcon) Gravity.TOP or Gravity.START else collapsedWindowGravity()
+            x = 0
+            y = 0
             layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         }
         params = lp
+        if (isIcon) dotTouchBlocked = false
 
         val rootLayout = FrameLayout(ctx)
         root = rootLayout
@@ -258,68 +338,85 @@ class SettingsDrawerOverlay(
             )
             attachEdgeSwipeBehavior(rootLayout)
             startHandlePulse()
-        } else {
-            val icon = buildIconButton()
-            iconButton = icon
-            rootLayout.addView(icon, iconButtonLayoutParams())
-            attachIconButtonBehavior(icon)
         }
 
+        // 先加面板窗口，后加球窗口 → 球在本应用两窗口最上层。
         runCatching { wm.addView(rootLayout, lp) }
-            .onFailure { Log.w(TAG, "addView failed", it) }
-        LsfgLog.i(TAG, "drawer show (added)")
+            .onFailure { Log.w(TAG, "panel addView failed", it) }
+
+        if (entryMode == OverlayMode.ICON_BUTTON) {
+            // ICON：悬浮球独立窗口，坐标固定在 (iconX, iconY)，尺寸/坐标永不参与
+            // 面板的展开/收起。球 View 监听器与窗口里的是同一个实例。
+            val icon = buildIconButton()
+            iconButton = icon
+            attachIconButtonBehavior(icon)
+            val dotLayout = FrameLayout(ctx).apply {
+                addView(icon, iconButtonLayoutParams())
+            }
+            dotRoot = dotLayout
+            val dlp = WindowManager.LayoutParams(
+                iconSizePx,
+                iconSizePx,
+                layoutType,
+                flags, // 球收起态可触摸；展开态由 setDotTouchBlocked 加 NOT_TOUCHABLE
+                PixelFormat.TRANSLUCENT,
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = iconX
+                y = iconY
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+            dotLp = dlp
+            runCatching { wm.addView(dotLayout, dlp) }
+                .onFailure { Log.w(TAG, "dot addView failed", it) }
+        }
+        LsfgLog.i(TAG, "drawer show (added, icon=$entryMode)")
     }
 
     /** Raise the drawer window above the framegen overlay after the overlay
      *  re-fronted itself (touch-pause restore / target-foreground show). */
     fun bringToFront() {
-        val r = root ?: return
         val wm = hostWindowManager ?: return
-        if (!r.isAttachedToWindow) return
-        val lp = r.layoutParams as? WindowManager.LayoutParams ?: return
-        runCatching {
-            wm.removeView(r)
-            wm.addView(r, lp)
-        }.onFailure { Log.w(TAG, "drawer bringToFront failed", it) }
+        // 顺序：先面板、后球 → 球仍在本应用两窗口最上层，且都在 framegen overlay 之上。
+        root?.let { r ->
+            if (r.isAttachedToWindow) {
+                (r.layoutParams as? WindowManager.LayoutParams)?.let { lp ->
+                    runCatching {
+                        wm.removeView(r)
+                        wm.addView(r, lp)
+                    }.onFailure { Log.w(TAG, "panel bringToFront failed", it) }
+                }
+            }
+        }
+        dotRoot?.let { d ->
+            if (d.isAttachedToWindow) {
+                (d.layoutParams as? WindowManager.LayoutParams)?.let { lp ->
+                    runCatching {
+                        wm.removeView(d)
+                        wm.addView(d, lp)
+                    }.onFailure { Log.w(TAG, "dot bringToFront failed", it) }
+                }
+            }
+        }
         LsfgLog.i(TAG, "drawer bringToFront")
     }
 
     fun hide() {
-        val r = root ?: return
-        val wm = hostWindowManager
+        if (root == null && dotRoot == null) return
         LsfgLog.i(TAG, "drawer hide")
         settleAnimator?.cancel()
         settleAnimator = null
         handlePulseAnimator?.cancel()
         handlePulseAnimator = null
-        if (wm != null) {
-            var removed = false
-            runCatching { wm.removeView(r) }
-                .onSuccess { removed = true }
-                .onFailure { LsfgLog.w(TAG, "drawer removeView FAILED", it) }
-            if (removed) {
-                LsfgLog.i(TAG, "drawer window removed")
-            } else if (r.isAttachedToWindow) {
-                // Retry on the main looper — a leaked expanded drawer window
-                // (fullscreen scrim) eats every touch on screen.
-                val handler = Handler(Looper.getMainLooper())
-                var attempt = 0
-                val retry = object : Runnable {
-                    override fun run() {
-                        attempt++
-                        if (!r.isAttachedToWindow) return
-                        runCatching { wm.removeView(r) }
-                            .onSuccess { LsfgLog.i(TAG, "drawer window removed on retry #$attempt") }
-                            .onFailure {
-                                LsfgLog.w(TAG, "drawer removeView retry #$attempt FAILED", it)
-                                if (attempt < 10) handler.postDelayed(this, 200L)
-                            }
-                    }
-                }
-                handler.postDelayed(retry, 200L)
-            }
-        }
+        // 先处理面板（全屏 scrim 窗口风险最高），再处理球窗口。helper 捕获局部
+        // 引用，下面把字段置 null 不影响重试。
+        root?.let { removeWindowWithRetry(it) }
+        dotRoot?.let { removeWindowWithRetry(it) }
         root = null
+        dotRoot = null
+        dotLp = null
+        dotTouchBlocked = false
         handleView = null
         iconButton = null
         scrim = null
@@ -664,6 +761,10 @@ class SettingsDrawerOverlay(
         // 自愈：面板可见的任何时刻强制确保窗口处于全屏展开态（幂等），
         // 杜绝"面板渲染在收缩窗口里被裁剪"。
         if (p > 0f) expandWindow()
+        // 面板一展开就让球窗口 NOT_TOUCHABLE（alpha=0 的球仍会被命中测试命中，
+        // 必须靠 flag 才能让该区域点击穿透到 scrim）；收起时恢复可触摸。去重由
+        // setDotTouchBlocked 内部完成，逐帧调用无额外 Binder 开销。
+        setDotTouchBlocked(p > 0f)
         applyPanelProgress(panelView, p)
         val scrimView = scrim
         if (scrimView != null) {
@@ -758,16 +859,23 @@ class SettingsDrawerOverlay(
         val r = root ?: return
         if (!r.isAttachedToWindow) return
         val lp = params ?: return
-        if (lp.width == WindowManager.LayoutParams.MATCH_PARENT &&
-            lp.height == WindowManager.LayoutParams.MATCH_PARENT) return
-        lp.width = WindowManager.LayoutParams.MATCH_PARENT
-        lp.height = WindowManager.LayoutParams.MATCH_PARENT
-        // In ICON_BUTTON mode the collapsed window was offset to the icon's position;
-        // when expanded to fullscreen we need to reset x/y so the scrim and panel
-        // cover the entire display rather than starting at the icon.
+
         if (entryMode == OverlayMode.ICON_BUTTON) {
-            lp.x = 0
-            lp.y = 0
+            // 面板窗口恒全屏，展开只清 NOT_TOUCHABLE 让 scrim/panel 可点击；
+            // 尺寸/坐标从不变，也绝不碰球窗口。early-return 必须含 flag 判断，
+            // 否则 setProgress 逐帧调用会在 flag 尚未同步时提前返回。
+            val cleared = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            if (lp.width == WindowManager.LayoutParams.MATCH_PARENT &&
+                lp.height == WindowManager.LayoutParams.MATCH_PARENT &&
+                lp.flags == cleared) return
+            lp.width = WindowManager.LayoutParams.MATCH_PARENT
+            lp.height = WindowManager.LayoutParams.MATCH_PARENT
+            lp.flags = cleared
+        } else {
+            if (lp.width == WindowManager.LayoutParams.MATCH_PARENT &&
+                lp.height == WindowManager.LayoutParams.MATCH_PARENT) return
+            lp.width = WindowManager.LayoutParams.MATCH_PARENT
+            lp.height = WindowManager.LayoutParams.MATCH_PARENT
         }
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "expandWindow failed", it) }
@@ -778,19 +886,25 @@ class SettingsDrawerOverlay(
         val r = root ?: return
         if (!r.isAttachedToWindow) return
         val lp = params ?: return
-        val collapsedW = collapsedWindowWidth()
-        val collapsedH = collapsedWindowHeight()
-        val needsResize = lp.width != collapsedW || lp.height != collapsedH
-        val needsReposition = entryMode == OverlayMode.ICON_BUTTON && (lp.x != iconX || lp.y != iconY)
-        if (!needsResize && !needsReposition) return
-        lp.width = collapsedW
-        lp.height = collapsedH
+
         if (entryMode == OverlayMode.ICON_BUTTON) {
-            lp.x = iconX
-            lp.y = iconY
+            // ICON：面板窗口尺寸/坐标恒全屏不动，收起只加 NOT_TOUCHABLE 让触摸
+            // 穿透给游戏，并隐藏 scrim/panel 内容。球窗口完全不参与。
+            val blocked = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            scrim?.visibility = View.GONE
+            panelContainer?.visibility = View.GONE
+            if (lp.flags == blocked) return
+            lp.flags = blocked
+        } else {
+            val collapsedW = collapsedWindowWidth()
+            val collapsedH = collapsedWindowHeight()
+            val needsResize = lp.width != collapsedW || lp.height != collapsedH
+            if (!needsResize) return
+            lp.width = collapsedW
+            lp.height = collapsedH
+            scrim?.visibility = View.GONE
+            panelContainer?.visibility = View.GONE
         }
-        scrim?.visibility = View.GONE
-        panelContainer?.visibility = View.GONE
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "collapseWindowIfNeeded failed", it) }
     }
@@ -809,8 +923,8 @@ class SettingsDrawerOverlay(
      * updateViewLayout calls from a binder thread on some OEMs.
      */
     fun onDisplayConfigurationChanged() {
-        val r = root ?: return
-        r.post {
+        val host = root ?: dotRoot ?: return
+        host.post {
             relayoutForCurrentDisplay()
         }
     }
@@ -854,22 +968,26 @@ class SettingsDrawerOverlay(
         // whether the active edge is vertical or horizontal.
         handleView?.layoutParams = handleLayoutParams()
 
-        // Reset the WindowManager params to match the current state (collapsed
-        // vs expanded, icon vs drawer).
-        if (lp.width == WindowManager.LayoutParams.MATCH_PARENT &&
-            lp.height == WindowManager.LayoutParams.MATCH_PARENT) {
-            // Expanded: nothing to resize, the panel itself was rebuilt above.
-        } else {
+        // ICON：面板窗口恒全屏，尺寸/坐标从不变，这里只需把球窗口坐标 clamp 后写回。
+        // DRAWER：保留原 collapsed/expanded 语义（边缘窄条 resize 到全屏）。
+        if (entryMode == OverlayMode.ICON_BUTTON) {
+            val dLp = dotLp
+            val dRoot = dotRoot
+            if (dLp != null && dRoot != null && dRoot.isAttachedToWindow) {
+                dLp.width = iconSizePx
+                dLp.height = iconSizePx
+                dLp.x = iconX
+                dLp.y = iconY
+                runCatching { wm.updateViewLayout(dRoot, dLp) }
+                    .onFailure { Log.w(TAG, "dot relayout updateViewLayout failed", it) }
+            }
+        } else if (lp.width != WindowManager.LayoutParams.MATCH_PARENT ||
+            lp.height != WindowManager.LayoutParams.MATCH_PARENT) {
             lp.width = collapsedWindowWidth()
             lp.height = collapsedWindowHeight()
             lp.gravity = collapsedWindowGravity()
-            if (entryMode == OverlayMode.ICON_BUTTON) {
-                lp.x = iconX
-                lp.y = iconY
-            } else {
-                lp.x = 0
-                lp.y = 0
-            }
+            lp.x = 0
+            lp.y = 0
         }
         runCatching { wm.updateViewLayout(r, lp) }
             .onFailure { Log.w(TAG, "relayoutForCurrentDisplay updateViewLayout failed", it) }
@@ -2200,16 +2318,18 @@ class SettingsDrawerOverlay(
                             pv.layoutParams = panelLayoutParams()
                             applyPanelProgress(pv, progress)
                         }
-                        val lp = params
-                        val r = root
+                        // 吸附写球窗口自己的 lp；球窗口尺寸恒定，无需 width 守卫。
+                        val lp = dotLp
+                        val r = dotRoot
                         val wm = hostWindowManager
-                        if (lp != null && r != null && wm != null && r.isAttachedToWindow &&
-                            lp.width != WindowManager.LayoutParams.MATCH_PARENT) {
+                        if (lp != null && r != null && wm != null && r.isAttachedToWindow) {
                             lp.x = iconX
                             lp.y = iconY
                             runCatching { wm.updateViewLayout(r, lp) }
                                 .onFailure { Log.w(TAG, "icon snap updateViewLayout failed", it) }
                         }
+                        // 持久化位置，会话重建后悬浮球回到这里（蓝/黄共享）。
+                        LsfgPreferences(ctx).setFloatingDotPos(iconX, iconY)
                     } else {
                         // Tap — open the panel.
                         if (!expanded) {
@@ -2335,9 +2455,19 @@ class SettingsDrawerOverlay(
          *  the overlay chrome never park framegen or hide the drawer mid-tap —
          *  hiding the window (removeView) swallowed clicks like End session. */
         @Volatile private var lastUiTouchAtMs: Long = 0L
+        @Volatile private var uiTouchListener: (() -> Unit)? = null
+
+        /** Registered by [LsfgForegroundService] so a touch on either overlay
+         *  chrome (drawer strip / launcher dot) can cancel a touch-pause park
+         *  that raw-input detection already queued. Without this the park
+         *  runnable hides the window mid-tap and swallows the click. */
+        fun setUiTouchListener(listener: (() -> Unit)?) {
+            uiTouchListener = listener
+        }
 
         fun markUiTouch() {
             lastUiTouchAtMs = android.os.SystemClock.elapsedRealtime()
+            uiTouchListener?.invoke()
         }
 
         fun uiTouchFresh(graceMs: Long): Boolean =

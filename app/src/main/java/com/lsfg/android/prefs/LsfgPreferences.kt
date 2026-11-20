@@ -322,6 +322,15 @@ class LsfgPreferences(ctx: Context) {
     fun setOverlayMode(value: OverlayMode) = prefs.edit()
         .putString(KEY_OVERLAY_MODE, value.prefValue)
         .apply()
+
+    /** 悬浮球位置，-1 表示未保存。蓝/黄两个球共享同一份。 */
+    fun getFloatingDotPos(): Pair<Int, Int> =
+        prefs.getInt(KEY_DOT_X, -1) to prefs.getInt(KEY_DOT_Y, -1)
+
+    fun setFloatingDotPos(x: Int, y: Int) = prefs.edit()
+        .putInt(KEY_DOT_X, x)
+        .putInt(KEY_DOT_Y, y)
+        .apply()
     fun setNpuPostProcessingEnabled(value: Boolean) = prefs.edit().putBoolean(KEY_NPU_POST, value).apply()
     fun setNpuPostProcessingPreset(value: NpuPostProcessingPreset) = prefs.edit()
         .putString(KEY_NPU_PRESET, value.prefValue)
@@ -393,6 +402,9 @@ class LsfgPreferences(ctx: Context) {
         private const val KEY_FRAME_GRAPH = "frame_graph"
         private const val KEY_DRAWER_EDGE = "drawer_edge"
         private const val KEY_OVERLAY_MODE = "overlay_mode"
+        // 悬浮球拖动位置（蓝/黄共享）。-1 = 尚未保存，回退到默认贴右边缘。
+        private const val KEY_DOT_X = "floating_dot_x"
+        private const val KEY_DOT_Y = "floating_dot_y"
         private const val KEY_NPU_POST = "npu_post_processing"
         private const val KEY_NPU_PRESET = "npu_post_processing_preset"
         private const val KEY_NPU_UPSCALE = "npu_upscale_factor"
